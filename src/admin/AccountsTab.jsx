@@ -1,31 +1,21 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { YEAR } from "../constants";
-import { hashPwd, generateSalt, validate, sanitize } from "../security"; // 점 하나를 지웠습니다.
-import { Btn, Card, Field, Alert } from "../components/UI"; // 여기도 점 하나를 지웠습니다.
+import { hashPwd, generateSalt, validate, sanitize } from "../security";
+import { Btn, Field, Alert } from "../components/UI";
 
 export default function AccountsTab({ employees, apps, saveEmp }) {
   const [f, setF] = useState({ empId: '', pw: '', org: '', dept: '', phone: '' })
-  const [err,  setErr]  = useState('')
-  const [ok,   setOk]   = useState('')
-  const [loading,       setLoading]     = useState(false)
-  const [resetTarget,   setResetTarget] = useState(null)
-  const [resetPw,       setResetPw]     = useState('')
-  const [delConfirm,    setDelConfirm]  = useState(null)
-  const [search,        setSearch]      = useState('')
-  const [showAdd,       setShowAdd]     = useState(false)
-  const aClickRef = useRef(0); const aTimerRef = useRef(null)
+  const [err,        setErr]        = useState('')
+  const [ok,         setOk]         = useState('')
+  const [loading,    setLoading]    = useState(false)
+  const [resetTarget,setResetTarget]= useState(null)
+  const [resetPw,    setResetPw]    = useState('')
+  const [delConfirm, setDelConfirm] = useState(null)
+  const [search,     setSearch]     = useState('')
+  const [showAdd,    setShowAdd]    = useState(false)
 
   const upd   = k => v => setF(p => ({ ...p, [k]: v }))
   const flash = msg => { setOk(msg); setTimeout(() => setOk(''), 2500) }
-
-  const handleListTitleClick = () => {
-    aClickRef.current += 1
-    if (aTimerRef.current) clearTimeout(aTimerRef.current)
-    aTimerRef.current = setTimeout(() => { aClickRef.current = 0 }, 2000)
-    if (aClickRef.current >= 5) {
-      aClickRef.current = 0; clearTimeout(aTimerRef.current); setShowAdd(v => !v)
-    }
-  }
 
   const list = Object.values(employees)
     .filter(e => {
@@ -66,10 +56,13 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
       setF({ empId: '', pw: '', org: '', dept: '', phone: '' })
       setErr('')
       flash(`${id} 계정 추가 완료.`)
+      setShowAdd(false)
     } finally {
       setLoading(false)
     }
   }
+
+  const closeAddModal = () => { setShowAdd(false); setF({ empId: '', pw: '', org: '', dept: '', phone: '' }); setErr('') }
 
   // ── 비밀번호 초기화 ────────────────────────────────────────────────────────
   const resetPassword = async () => {
@@ -96,32 +89,24 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
 
   return (
     <div>
-      {err && <Alert type="danger">{err}</Alert>}
       {ok  && <Alert type="success">{ok}</Alert>}
 
-      {/* 계정 직접 추가 — 히든 (승인된 계정 제목 5회 클릭 시 표시) */}
-      {showAdd && (
-        <Card style={{ marginBottom: 20 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>직원 계정 직접 추가 (즉시 승인)</h3>
-          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 14 }}>관리자가 직접 계정을 생성합니다.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
-            <Field label="사번"         value={f.empId} onChange={upd('empId')} placeholder="EMP-0001" />
-            <Field label="기관"         value={f.org}   onChange={upd('org')}   placeholder="안전보건공단" />
-            <Field label="부서"         value={f.dept}  onChange={upd('dept')}  placeholder="인사부" />
-            <Field label="휴대폰"       type="tel" value={f.phone} onChange={upd('phone')} placeholder="010-0000-0000" />
-            <Field label="초기 비밀번호" type="password" value={f.pw} onChange={upd('pw')} placeholder="4~128자"
-              onKeyDown={e => e.key === 'Enter' && addEmp()} />
-          </div>
-          <Btn variant="primary" onClick={addEmp} disabled={loading}>{loading ? '처리 중…' : '추가'}</Btn>
-        </Card>
-      )}
-
-      {/* 계정 목록 */}
+      {/* 계정 목록 헤더 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
-        <h3 onClick={handleListTitleClick}
-          style={{ fontSize: 14, fontWeight: 500, cursor: 'default', userSelect: 'none' }}>
-          승인된 계정 ({list.length}명)
-        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 500 }}>승인된 계정 ({list.length}명)</h3>
+          <button
+            onClick={() => setShowAdd(true)}
+            title="직원 계정 직접 추가"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 24, height: 24, borderRadius: '50%',
+              background: 'var(--color-background-info)', border: 'none',
+              color: 'var(--color-text-info)', fontSize: 16, fontWeight: 700,
+              cursor: 'pointer', lineHeight: 1, flexShrink: 0,
+            }}
+          >+</button>
+        </div>
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="사번 / 기관 / 부서 / 전화 검색" style={{ width: 220, fontSize: 13 }} />
       </div>
@@ -183,6 +168,43 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
           </div>
         )
       }
+
+      {/* 계정 직접 추가 모달 */}
+      {showAdd && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget) closeAddModal() }}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div style={{
+            background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-lg)',
+            padding: '28px 28px 24px', width: '100%', maxWidth: 520,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.18)', margin: '0 16px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 500 }}>직원 계정 직접 추가</h3>
+              <button onClick={closeAddModal}
+                style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--color-text-tertiary)', cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 18 }}>관리자가 직접 계정을 생성합니다. 즉시 승인 상태로 등록됩니다.</p>
+            {err && <Alert type="danger">{err}</Alert>}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 18 }}>
+              <Field label="사번"          value={f.empId} onChange={upd('empId')} placeholder="EMP-0001" />
+              <Field label="기관"          value={f.org}   onChange={upd('org')}   placeholder="안전보건공단" />
+              <Field label="부서"          value={f.dept}  onChange={upd('dept')}  placeholder="인사부" />
+              <Field label="휴대폰"        type="tel" value={f.phone} onChange={upd('phone')} placeholder="010-0000-0000" />
+              <Field label="초기 비밀번호"  type="password" value={f.pw} onChange={upd('pw')} placeholder="4~128자"
+                onKeyDown={e => e.key === 'Enter' && addEmp()} />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn variant="primary" onClick={addEmp} disabled={loading}>{loading ? '처리 중…' : '추가'}</Btn>
+              <Btn onClick={closeAddModal}>취소</Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

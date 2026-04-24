@@ -1,27 +1,45 @@
 import { useState } from 'react'
-import { won, YEAR, MONTHS_KR, getSeason } from '../constants'
+import { won, YEAR, MONTHS_KR, getSeason, ADMIN_PW } from '../constants'
 import { Btn, Card, Alert, AppStatusBadge } from '../components/UI'
 
 export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFundUsed }) {
-  const [selMonth, setSelMonth] = useState(new Date().getMonth() + 1)
-  const [confirm,  setConfirm]  = useState(false)
-  const [msg,      setMsg]      = useState(null)
-  const [manualId, setManualId] = useState('')
-  const [manualMsg,setManualMsg]= useState(null)
+  const [selMonth,      setSelMonth]      = useState(new Date().getMonth() + 1)
+  const [confirm,       setConfirm]       = useState(false)
+  const [msg,           setMsg]           = useState(null)
+  const [manualId,      setManualId]      = useState('')
+  const [manualMsg,     setManualMsg]     = useState(null)
+
+  // 관리자 모드 (별도배정 잠금)
+  const [adminUnlocked, setAdminUnlocked] = useState(false)
+  const [showPwModal,   setShowPwModal]   = useState(false)
+  const [pwInput,       setPwInput]       = useState('')
+  const [pwErr,         setPwErr]         = useState('')
 
   const quota     = settings.quotas[selMonth] ?? 20
   const monthApps = apps.filter(a => a.month === selMonth && a.year === YEAR)
   const pending   = monthApps.filter(a => a.status === 'pending')
-  const manual    = monthApps.filter(a => a.status === 'manual')      // 별도배정 (선점)
+  const manual    = monthApps.filter(a => a.status === 'manual')
   const selected  = monthApps.filter(a => a.status === 'selected')
   const rejected  = monthApps.filter(a => a.status === 'rejected')
-  const remaining = Math.max(0, quota - manual.length)                // 추첨으로 뽑을 잔여 인원
+  const remaining = Math.max(0, quota - manual.length)
+
+  const openAdminModal = () => {
+    if (adminUnlocked) { setAdminUnlocked(false); return }
+    setPwInput(''); setPwErr(''); setShowPwModal(true)
+  }
+
+  const confirmAdminPw = () => {
+    if (pwInput === ADMIN_PW) {
+      setAdminUnlocked(true); setShowPwModal(false); setPwInput(''); setPwErr('')
+    } else {
+      setPwErr('비밀번호가 올바르지 않습니다.')
+    }
+  }
 
   // ── 무작위 추첨 ──────────────────────────────────────────────────────────
   const runLottery = async (resetFirst = false) => {
     let work = apps, curFund = fundUsed
     if (resetFirst) {
-      // 재추첨 시 selected만 초기화 (manual은 유지)
       const prev = apps
         .filter(a => a.month === selMonth && a.year === YEAR && a.status === 'selected')
         .reduce((s, a) => s + a.subsidy, 0)
@@ -31,8 +49,7 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
     const pool = work.filter(a => a.month === selMonth && a.year === YEAR && a.status === 'pending')
     if (!pool.length) { setMsg({ type: 'warn', text: '대기 중인 신청자가 없습니다.' }); return }
 
-    // 별도배정 인원만큼 제외한 잔여 쿼터로 추첨
-    const currentManual = work.filter(a => a.month === selMonth && a.year === YEAR && a.status === 'manual').length
+    const currentManual  = work.filter(a => a.month === selMonth && a.year === YEAR && a.status === 'manual').length
     const effectiveQuota = Math.max(0, quota - currentManual)
 
     if (effectiveQuota === 0) { setMsg({ type: 'warn', text: '별도배정 인원이 쿼터를 모두 채웠습니다.' }); return }
@@ -55,15 +72,15 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
     setConfirm(false)
   }
 
-  // ── 별도 배정 (추첨 전 선점) ─────────────────────────────────────────────
+  // ── 별도 배정 ─────────────────────────────────────────────────────────────
   const manualAssign = async () => {
     const id  = manualId.trim()
     const app = monthApps.find(a => a.empId === id)
     if (!app) { setManualMsg({ type: 'warn', text: '해당 월에 해당 사번의 신청 내역이 없습니다.' }); return }
 
-    const isManual   = app.status === 'manual'
-    const newStatus  = isManual ? 'pending' : 'manual'   // 토글
-    const fundDelta  = isManual ? -app.subsidy : app.subsidy
+    const isManual  = app.status === 'manual'
+    const newStatus = isManual ? 'pending' : 'manual'
+    const fundDelta = isManual ? -app.subsidy : app.subsidy
 
     await saveApps(apps.map(a => a.id === app.id ? { ...a, status: newStatus } : a))
     await saveFundUsed(fundUsed + fundDelta)
@@ -73,12 +90,29 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-        <label style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>추첨 대상 월</label>
-        <select value={selMonth} onChange={e => { setSelMonth(parseInt(e.target.value)); setMsg(null); setConfirm(false) }}>
-          {[...Array(12)].map((_, i) => <option key={i + 1} value={i + 1}>{MONTHS_KR[i]} ({getSeason(i + 1)})</option>)}
-        </select>
+      {/* 헤더 행: 월 선택 + 관리자 모드 버튼 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <label style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>추첨 대상 월</label>
+          <select value={selMonth} onChange={e => { setSelMonth(parseInt(e.target.value)); setMsg(null); setConfirm(false) }}>
+            {[...Array(12)].map((_, i) => <option key={i + 1} value={i + 1}>{MONTHS_KR[i]} ({getSeason(i + 1)})</option>)}
+          </select>
+        </div>
+        <button
+          onClick={openAdminModal}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 14px', borderRadius: 'var(--border-radius-md)', fontSize: 12,
+            border: adminUnlocked ? 'none' : '0.5px solid var(--color-border-secondary)',
+            background: adminUnlocked ? 'var(--color-background-danger)' : 'var(--color-background-secondary)',
+            color: adminUnlocked ? 'var(--color-text-danger)' : 'var(--color-text-secondary)',
+            cursor: 'pointer', fontFamily: 'var(--font-sans)', fontWeight: 500,
+          }}
+        >
+          {adminUnlocked ? '🔓 관리자 모드 (클릭하여 잠금)' : '🔒 관리자 모드'}
+        </button>
       </div>
+
       {msg && <Alert type={msg.type}>{msg.text}</Alert>}
 
       {/* 현황 */}
@@ -91,21 +125,23 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
         ))}
       </div>
 
-      {/* 별도배정 섹션 (먼저 배치 — 추첨 전 선점) */}
-      <Card style={{ marginBottom: 18 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>별도 배정 (추첨 전 선점)</h3>
-        <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 14 }}>
-          사번을 입력하면 별도배정으로 선점됩니다. 별도배정 인원만큼 추첨 쿼터가 감소합니다.
-          현재 잔여 추첨 쿼터: <strong style={{ color: 'var(--color-text-info)' }}>{remaining}명</strong>
-        </p>
-        {manualMsg && <Alert type={manualMsg.type}>{manualMsg.text}</Alert>}
-        <div style={{ display: 'flex', gap: 10 }}>
-          <input value={manualId} onChange={e => setManualId(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && manualAssign()}
-            placeholder="사번 입력 (이미 배정된 사번 재입력 시 해제)" style={{ flex: 1 }} />
-          <Btn variant="primary" onClick={manualAssign}>배정</Btn>
-        </div>
-      </Card>
+      {/* 별도배정 섹션 — 관리자 모드 잠금 해제 시만 표시 */}
+      {adminUnlocked && (
+        <Card style={{ marginBottom: 18, border: '0.5px solid var(--color-border-danger)' }}>
+          <h3 style={{ fontSize: 14, fontWeight: 500, marginBottom: 4, color: 'var(--color-text-danger)' }}>별도 배정 (추첨 전 선점)</h3>
+          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 14 }}>
+            사번을 입력하면 별도배정으로 선점됩니다. 별도배정 인원만큼 추첨 쿼터가 감소합니다.
+            현재 잔여 추첨 쿼터: <strong style={{ color: 'var(--color-text-info)' }}>{remaining}명</strong>
+          </p>
+          {manualMsg && <Alert type={manualMsg.type}>{manualMsg.text}</Alert>}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <input value={manualId} onChange={e => setManualId(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && manualAssign()}
+              placeholder="사번 입력 (이미 배정된 사번 재입력 시 해제)" style={{ flex: 1 }} />
+            <Btn variant="primary" onClick={manualAssign}>배정</Btn>
+          </div>
+        </Card>
+      )}
 
       {/* 무작위 추첨 섹션 */}
       <Card style={{ marginBottom: 18 }}>
@@ -164,6 +200,45 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
             </table>
           </div>
         </>
+      )}
+
+      {/* 관리자 비밀번호 모달 */}
+      {showPwModal && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget) { setShowPwModal(false); setPwInput(''); setPwErr('') } }}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div style={{
+            background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-lg)',
+            padding: '28px 28px 24px', width: 340, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 500 }}>관리자 모드 인증</h3>
+              <button onClick={() => { setShowPwModal(false); setPwInput(''); setPwErr('') }}
+                style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--color-text-tertiary)', cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 14 }}>
+              별도배정 기능을 사용하려면 관리자 비밀번호를 입력하세요.
+            </p>
+            {pwErr && <Alert type="danger">{pwErr}</Alert>}
+            <input
+              type="password"
+              value={pwInput}
+              onChange={e => { setPwInput(e.target.value); setPwErr('') }}
+              onKeyDown={e => e.key === 'Enter' && confirmAdminPw()}
+              placeholder="관리자 비밀번호"
+              style={{ width: '100%', marginBottom: 14 }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn variant="primary" fullWidth onClick={confirmAdminPw}>확인</Btn>
+              <Btn fullWidth onClick={() => { setShowPwModal(false); setPwInput(''); setPwErr('') }}>취소</Btn>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

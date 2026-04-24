@@ -74,7 +74,7 @@ export function Alert({ type = 'info', children, style: s = {} }) {
 
 // ── 입력 필드 ─────────────────────────────────────────────────────────────
 
-export function Field({ label, value, onChange, placeholder, type = 'text', hint, required }) {
+export function Field({ label, value, onChange, placeholder, type = 'text', hint, required, onKeyDown }) {
   return (
     <div>
       <label style={{ fontSize: 13, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 6 }}>
@@ -85,6 +85,7 @@ export function Field({ label, value, onChange, placeholder, type = 'text', hint
         type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
+        onKeyDown={onKeyDown}
         placeholder={placeholder}
         style={{ width: '100%' }}
       />
