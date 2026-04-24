@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
-import { YEAR } from '../../constants'
-import { hashPwd, generateSalt, validate, sanitize } from '../../security'
-import { Btn, Card, Field, Alert } from '../../components/UI'
+import { YEAR } from "../constants";
+import { hashPwd, generateSalt, validate, sanitize } from "../security"; // 점 하나를 지웠습니다.
+import { Btn, Card, Field, Alert } from "../components/UI"; // 여기도 점 하나를 지웠습니다.
 
 export default function AccountsTab({ employees, apps, saveEmp }) {
   const [f, setF] = useState({ empId: '', pw: '', org: '', dept: '', phone: '' })
