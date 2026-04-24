@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>안전보건공단 발전기금 휴양소 예약 시스템</title>
+
+    <!-- ── 보안 메타 태그 ──────────────────────────────────────────────────── -->
+
+    <!-- XSS 방지: MIME 타입 스니핑 차단 -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+
+    <!-- Clickjacking 방지 -->
+    <meta http-equiv="X-Frame-Options" content="DENY" />
+
+    <!-- Referrer 정보 최소화 -->
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+    <!-- 캐시 제어: 민감 페이지 캐시 방지 -->
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+
+    <!--
+      Content Security Policy (CSP)
+      - default-src: 기본적으로 동일 출처만 허용
+      - script-src: 인라인 스크립트 및 eval 차단 (React 번들만 허용)
+      - style-src: 인라인 스타일 허용 (React 인라인 스타일 필요)
+      - connect-src: API 호출 허용 도메인 명시
+      - img-src: 이미지 소스 제한
+      - object-src: 플러그인(Flash 등) 차단
+    -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self';
+      style-src 'self' 'unsafe-inline';
+      connect-src 'self' https://api.anthropic.com https://gmailmcp.googleapis.com;
+      img-src 'self' data:;
+      font-src 'self';
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';
+      frame-ancestors 'none'
+    " />
+
+    <!-- 검색 엔진 인덱싱 차단 (내부 시스템) -->
+    <meta name="robots" content="noindex, nofollow" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

@@ -1,0 +1,105 @@
+/* ── 디자인 토큰 (라이트 모드) ─────────────────────────────────────────── */
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR',
+    sans-serif;
+
+  --color-background-primary:   #ffffff;
+  --color-background-secondary: #f5f5f5;
+  --color-background-tertiary:  #efefef;
+
+  --color-background-info:      #e8f4fd;
+  --color-background-success:   #e8f7ee;
+  --color-background-warning:   #fff8e6;
+  --color-background-danger:    #fdecea;
+
+  --color-border-tertiary:  #e0e0e0;
+  --color-border-secondary: #cacaca;
+  --color-border-info:      #90caf9;
+  --color-border-success:   #a5d6a7;
+  --color-border-warning:   #ffe082;
+  --color-border-danger:    #ef9a9a;
+
+  --color-text-primary:   #111111;
+  --color-text-secondary: #555555;
+  --color-text-tertiary:  #999999;
+
+  --color-text-info:    #1565c0;
+  --color-text-success: #2e7d32;
+  --color-text-warning: #e65100;
+  --color-text-danger:  #c62828;
+
+  --border-radius-sm: 4px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+}
+
+/* ── 다크 모드 ──────────────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background-primary:   #1e1e1e;
+    --color-background-secondary: #2a2a2a;
+    --color-background-tertiary:  #141414;
+
+    --color-background-info:    #0d2a4a;
+    --color-background-success: #0d2e18;
+    --color-background-warning: #2e1f00;
+    --color-background-danger:  #2e0e0e;
+
+    --color-border-tertiary:  #333;
+    --color-border-secondary: #444;
+    --color-border-info:      #1565c0;
+    --color-border-success:   #2e7d32;
+    --color-border-warning:   #e65100;
+    --color-border-danger:    #c62828;
+
+    --color-text-primary:   #eeeeee;
+    --color-text-secondary: #aaaaaa;
+    --color-text-tertiary:  #666666;
+
+    --color-text-info:    #90caf9;
+    --color-text-success: #a5d6a7;
+    --color-text-warning: #ffcc80;
+    --color-text-danger:  #ef9a9a;
+  }
+}
+
+/* ── 리셋 & 기본 ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-background-tertiary);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* ── 공통 폼 요소 ────────────────────────────────────────────────────────── */
+input, select, textarea {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--color-text-primary);
+  background: var(--color-background-primary);
+  border: 0.5px solid var(--color-border-secondary);
+  border-radius: var(--border-radius-md);
+  padding: 9px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--color-text-info);
+}
+input[type="date"] { cursor: pointer; }
+
+/* ── 스크롤바 ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-secondary); border-radius: 3px; }
+
+/* ── 유틸 ──────────────────────────────────────────────────────────────── */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}

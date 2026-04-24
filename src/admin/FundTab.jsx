@@ -1,0 +1,141 @@
+import { useState } from 'react'
+import { won, YEAR, MONTHS_KR, getSeason, pctOf } from '../constants'
+import { Btn, Card, Stat, ProgressBar, SeasonBadge } from '../components/UI'
+
+export default function FundTab({ settings, apps, fundUsed, saveFundUsed, saveSettings }) {
+  const budget   = settings.fundBudget ?? 20_000_000
+  const fundLeft = budget - fundUsed
+  const pct      = pctOf(fundUsed, budget)
+
+  const [editBudget,   setEditBudget]   = useState(false)
+  const [budgetVal,    setBudgetVal]    = useState(String(budget))
+  const [addAmt,       setAddAmt]       = useState('')   // 추가 배정액
+  const [resetConfirm, setRc]           = useState(false)
+  const [savedMsg,     setSavedMsg]     = useState('')
+
+  const flash = msg => { setSavedMsg(msg); setTimeout(() => setSavedMsg(''), 2500) }
+
+  const saveBudget = async () => {
+    const v = parseInt(budgetVal.replace(/,/g, '')) || budget
+    await saveSettings({ ...settings, fundBudget: v })
+    setEditBudget(false)
+    flash(`배정액이 ${won(v)}으로 변경되었습니다.`)
+  }
+
+  // 추가 배정 (기존 금액에 더하기)
+  const addBudget = async () => {
+    const add = parseInt(addAmt.replace(/,/g, ''))
+    if (!add || add <= 0) return
+    const newBudget = budget + add
+    await saveSettings({ ...settings, fundBudget: newBudget })
+    flash(`${won(add)} 추가 배정 → 총 ${won(newBudget)}`)
+    setAddAmt('')
+  }
+
+  const monthly = [...Array(12)].map((_, i) => {
+    const m   = i + 1
+    const sel = apps.filter(a => a.month === m && a.year === YEAR && (a.status === 'selected' || a.status === 'manual'))
+    return { m, sub: sel.reduce((s, a) => s + a.subsidy, 0), cnt: sel.length }
+  })
+
+  return (
+    <div>
+      {savedMsg && <div style={{ background: 'var(--color-background-success)', border: '0.5px solid var(--color-border-success)', borderRadius: 'var(--border-radius-md)', padding: '10px 14px', fontSize: 13, color: 'var(--color-text-success)', marginBottom: 14 }}>{savedMsg}</div>}
+
+      {/* 배정액 관리 */}
+      <Card style={{ marginBottom: 20 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 500, marginBottom: 14 }}>발전기금 배정액 관리 ({YEAR}년)</h3>
+
+        {/* 현재 배정액 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div>
+            <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>현재 배정액</p>
+            {editBudget
+              ? <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input type="number" value={budgetVal} onChange={e => setBudgetVal(e.target.value)} style={{ width: 160 }} />
+                  <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>원</span>
+                  <Btn variant="primary" onClick={saveBudget} style={{ fontSize: 12, padding: '6px 14px' }}>저장</Btn>
+                  <Btn onClick={() => setEditBudget(false)} style={{ fontSize: 12, padding: '6px 14px' }}>취소</Btn>
+                </div>
+              : <p style={{ fontSize: 22, fontWeight: 500 }}>{won(budget)}</p>
+            }
+          </div>
+          {!editBudget && (
+            <Btn onClick={() => { setEditBudget(true); setBudgetVal(String(budget)) }} style={{ fontSize: 12, padding: '6px 14px' }}>직접 수정</Btn>
+          )}
+        </div>
+
+        {/* 추가 배정 */}
+        <div style={{ borderTop: '0.5px solid var(--color-border-tertiary)', paddingTop: 14 }}>
+          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
+            추가 배정 — 기존 금액에 더합니다
+          </p>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input type="number" value={addAmt} onChange={e => setAddAmt(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addBudget()}
+              placeholder="추가 금액 입력 (원)" style={{ width: 200 }} />
+            {[1_000_000, 5_000_000, 10_000_000].map(v => (
+              <button key={v} onClick={() => setAddAmt(String(v))}
+                style={{ background: 'var(--color-background-secondary)', border: '0.5px solid var(--color-border-secondary)', borderRadius: 'var(--border-radius-md)', padding: '6px 12px', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                +{won(v)}
+              </button>
+            ))}
+            <Btn variant="primary" onClick={addBudget} style={{ fontSize: 12, padding: '6px 14px' }}>추가 배정</Btn>
+          </div>
+        </div>
+      </Card>
+
+      {/* 요약 카드 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 20 }}>
+        <Stat label="배정액"      value={won(budget)} />
+        <Stat label="집행 지원액" value={won(fundUsed)} />
+        <Stat label="잔액"        value={won(fundLeft)} color={fundLeft < budget * 0.2 ? 'var(--color-text-danger)' : undefined} />
+        <Stat label="집행률"      value={pct + '%'} />
+      </div>
+
+      <div style={{ marginBottom: 28 }}>
+        <ProgressBar value={fundUsed} max={budget} />
+      </div>
+
+      {/* 월별 집행 현황 */}
+      <h3 style={{ fontSize: 14, fontWeight: 500, marginBottom: 10 }}>월별 집행 현황</h3>
+      <div style={{ overflowX: 'auto', marginBottom: 20 }}>
+        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '0.5px solid var(--color-border-secondary)' }}>
+              {['월', '시즌', '선발 인원', '집행 지원액'].map(h => (
+                <th key={h} style={{ padding: '7px 12px', textAlign: 'left', fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {monthly.map(({ m, sub, cnt }) => (
+              <tr key={m} style={{ borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
+                <td style={{ padding: '7px 12px', fontWeight: 500 }}>{MONTHS_KR[m - 1]}</td>
+                <td style={{ padding: '7px 12px' }}><SeasonBadge season={getSeason(m)} /></td>
+                <td style={{ padding: '7px 12px' }}>{cnt > 0 ? cnt + '명' : '-'}</td>
+                <td style={{ padding: '7px 12px', color: sub > 0 ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>{sub > 0 ? won(sub) : '-'}</td>
+              </tr>
+            ))}
+            <tr style={{ borderTop: '1px solid var(--color-border-secondary)', background: 'var(--color-background-secondary)' }}>
+              <td colSpan={2} style={{ padding: '8px 12px', fontWeight: 500 }}>합계</td>
+              <td style={{ padding: '8px 12px', fontWeight: 500 }}>{apps.filter(a => a.year === YEAR && (a.status === 'selected' || a.status === 'manual')).length}명</td>
+              <td style={{ padding: '8px 12px', fontWeight: 500 }}>{won(fundUsed)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ borderTop: '0.5px solid var(--color-border-tertiary)', paddingTop: 16 }}>
+        {!resetConfirm
+          ? <Btn variant="danger" onClick={() => setRc(true)} style={{ fontSize: 12 }}>집행 집계 초기화</Btn>
+          : <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 13, color: 'var(--color-text-danger)' }}>초기화하시겠습니까?</span>
+              <Btn variant="danger" onClick={async () => { await saveFundUsed(0); setRc(false) }}>초기화</Btn>
+              <Btn onClick={() => setRc(false)}>취소</Btn>
+            </div>
+        }
+      </div>
+    </div>
+  )
+}
