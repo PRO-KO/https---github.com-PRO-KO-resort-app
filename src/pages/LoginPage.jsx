@@ -105,18 +105,11 @@ export default function LoginPage({ employees, saveEmp, loginUser, loginAdmin, s
             <Field label="비밀번호" type="password" value={pw}
               onChange={v => { setPw(v); setErr('') }}
               onKeyDown={e => e.key === 'Enter' && handleLogin()}
-              placeholder="비밀번호 입력"
-              hint={Object.keys(employees).length === 0 ? '아직 등록된 계정이 없습니다. 먼저 가입 신청해주세요.' : undefined} />
+              placeholder="비밀번호 입력" />
           </div>
-          <Btn variant="primary" fullWidth onClick={handleLogin} disabled={loading} style={{ marginBottom: 14 }}>
+          <Btn variant="primary" fullWidth onClick={handleLogin} disabled={loading}>
             {loading ? '인증 중…' : '로그인'}
           </Btn>
-          <div style={{ textAlign: 'center' }}>
-            <button onClick={() => setPage('register')}
-              style={{ background: 'none', border: 'none', fontSize: 13, color: 'var(--color-text-info)', cursor: 'pointer' }}>
-              계정이 없으신가요? 가입 신청하기 →
-            </button>
-          </div>
         </Card>
 
         {showAdmin && (

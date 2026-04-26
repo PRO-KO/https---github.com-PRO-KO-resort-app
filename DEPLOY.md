@@ -946,4 +946,355 @@ curl -I http://localhost/
 
 ---
 
+## 16. 인사정보 시스템 연동 가이드
+
+회원 가입·승인 UI를 제거하고, 공단 인사정보 시스템에서 직원 계정을 자동으로 동기화하도록 구성합니다.
+
+### 16-1. 연동 방식 선택
+
+| 방식 | 설명 | 권장 상황 |
+|------|------|-----------|
+| **A. HR DB 직접 조회** | 인사DB에 직접 SELECT | 동일 네트워크, DB 접근권 있음 |
+| **B. HR 시스템 → Push API** | HR에서 변경 이벤트를 REST로 전달 | 실시간 반영 필요, HR 개발팀 협력 가능 |
+| **C. 파일 교환 (CSV/XML)** | 배치로 파일을 공유폴더에 넣고 읽음 | DB 직접 접근 불가, 레거시 연계 |
+
+> 폐쇄망 환경에서는 **방식 A** (동일 DB 서버 또는 DB-Link)를 가장 많이 사용합니다.
+
+---
+
+### 16-2. 직원 계정에 필요한 인사 정보 필드
+
+현재 시스템에서 직원 계정(`employees` 객체 / DB `employees` 테이블)에 필요한 컬럼:
+
+| 필드 | 설명 | 비고 |
+|------|------|------|
+| `emp_id` | 사번 (PK) | 예: `EMP-0001` |
+| `name` | 성명 | 화면 표시용 |
+| `dept` | 부서명 | 선택 표시용 |
+| `pw_hash` | 비밀번호 해시 (PBKDF2-SHA256) | 최초 부여 시 초기 비밀번호 설정 |
+| `pw_salt` | 비밀번호 Salt | |
+| `status` | 계정 상태: `approved` | HR 연동 시 기본값 `approved` |
+| `email` | 내부 이메일 주소 | 메일 발송 연동 시 필요 |
+
+> `server/schema.sql` 의 `employees` 테이블에 `email VARCHAR2(200)` 컬럼을 추가하세요.
+> 현재 스키마에는 이메일 컬럼이 없으므로 ALTER 또는 재생성이 필요합니다.
+
+```sql
+-- 기존 테이블에 email 컬럼 추가 (Oracle/Tibero)
+ALTER TABLE employees ADD (email VARCHAR2(200));
+```
+
+---
+
+### 16-3. 방식 A — HR DB 직접 조회 (주기적 동기화)
+
+#### 환경변수 추가 (`.env`)
+
+```dotenv
+# 인사정보 DB (Oracle/Tibero)
+HR_DB_HOST=hr-db-server
+HR_DB_PORT=1521
+HR_DB_SID=HRDB
+HR_DB_USER=hr_readonly
+HR_DB_PASS=password
+HR_SYNC_INTERVAL_MIN=60   # 동기화 주기 (분)
+```
+
+#### `server/hr-sync.js` 예시
+
+```js
+/**
+ * hr-sync.js — 인사정보 DB와 직원 계정을 주기적으로 동기화합니다.
+ *
+ * 동작:
+ *  1. 인사DB에서 재직 중인 직원 목록을 SELECT
+ *  2. 예약시스템 DB의 employees 테이블과 비교
+ *  3. 신규 직원: 초기 비밀번호(사번+생년월일 조합 등) 로 계정 생성
+ *  4. 퇴직 직원: status='inactive' 로 비활성화 (삭제하지 않음 — 이력 보존)
+ *  5. 부서·성명 변경: UPDATE
+ *
+ * 주의:
+ *  - 인사DB 접속 계정은 SELECT 권한만 부여된 읽기 전용 계정을 사용합니다.
+ *  - 비밀번호 해시는 server/security.js 의 hashPwd() 와 동일한 방식을 사용해야 합니다.
+ */
+
+const oracledb = require('oracledb')
+const crypto   = require('crypto')
+
+// ── 인사DB 연결 설정 ──────────────────────────────────────────────────────────
+const HR_CONFIG = {
+  user:         process.env.HR_DB_USER,
+  password:     process.env.HR_DB_PASS,
+  connectString:`${process.env.HR_DB_HOST}:${process.env.HR_DB_PORT}/${process.env.HR_DB_SID}`,
+}
+
+// ── 예약시스템 DB 연결 설정 ───────────────────────────────────────────────────
+// (server/db.js 의 getConnection() 을 import 하거나, 아래처럼 직접 설정)
+const APP_CONFIG = {
+  user:         process.env.DB_USER,
+  password:     process.env.DB_PASS,
+  connectString:`${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_SID}`,
+}
+
+// ── 초기 비밀번호 생성 규칙 ────────────────────────────────────────────────────
+// 예: 사번 + 생년월일 앞 6자리 (운영 정책에 맞게 변경)
+// 첫 로그인 시 반드시 비밀번호를 변경하도록 안내 필요
+function makeInitialPw(empId, birthYYMMDD) {
+  return `${empId}${birthYYMMDD}`
+}
+
+// ── PBKDF2 해시 (server/security.js 와 동일 파라미터) ─────────────────────────
+async function hashPwd(pw, salt) {
+  const enc = new TextEncoder()
+  const key = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveBits'])
+  const buf = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: enc.encode(salt), iterations: 200_000, hash: 'SHA-256' },
+    key, 256
+  )
+  return Buffer.from(buf).toString('hex')
+}
+
+function generateSalt() {
+  return crypto.randomBytes(32).toString('hex')
+}
+
+// ── 메인 동기화 함수 ──────────────────────────────────────────────────────────
+async function syncEmployees() {
+  let hrConn, appConn
+  try {
+    hrConn  = await oracledb.getConnection(HR_CONFIG)
+    appConn = await oracledb.getConnection(APP_CONFIG)
+
+    // ① 인사DB에서 재직자 목록 조회
+    // ※ 실제 HR 테이블명·컬럼명은 공단 인사DB 스키마에 맞게 수정하세요.
+    const hrResult = await hrConn.execute(`
+      SELECT EMP_NO    AS emp_id,
+             EMP_NM    AS name,
+             DEPT_NM   AS dept,
+             BIRTH_DT  AS birth_dt,
+             EMAIL_ADR AS email
+      FROM   HR_EMPLOYEE
+      WHERE  RETIRE_YN = 'N'
+    `, [], { outFormat: oracledb.OUT_FORMAT_OBJECT })
+
+    // ② 현재 예약시스템 직원 목록
+    const appResult = await appConn.execute(
+      `SELECT emp_id FROM employees`,
+      [], { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    )
+    const existingIds = new Set(appResult.rows.map(r => r.EMP_ID))
+
+    for (const hr of hrResult.rows) {
+      if (existingIds.has(hr.EMP_ID)) {
+        // 기존 직원: 부서·이름·이메일 업데이트
+        await appConn.execute(
+          `UPDATE employees SET name=:name, dept=:dept, email=:email WHERE emp_id=:emp_id`,
+          { name: hr.NAME, dept: hr.DEPT, email: hr.EMAIL, emp_id: hr.EMP_ID }
+        )
+      } else {
+        // 신규 직원: 계정 생성 (초기 비밀번호 부여)
+        const initPw = makeInitialPw(hr.EMP_ID, (hr.BIRTH_DT ?? '000000').slice(0, 6))
+        const salt   = generateSalt()
+        const hash   = await hashPwd(initPw, salt)
+        await appConn.execute(
+          `INSERT INTO employees (emp_id, name, dept, email, pw_hash, pw_salt, status, created_at)
+           VALUES (:emp_id, :name, :dept, :email, :pw_hash, :pw_salt, 'approved', SYSDATE)`,
+          { emp_id: hr.EMP_ID, name: hr.NAME, dept: hr.DEPT,
+            email: hr.EMAIL, pw_hash: hash, pw_salt: salt }
+        )
+        console.log(`[HR-SYNC] 신규 계정 생성: ${hr.EMP_ID}`)
+      }
+    }
+
+    // ③ 퇴직 처리: 인사DB에 없는 직원 비활성화
+    const hrIds = new Set(hrResult.rows.map(r => r.EMP_ID))
+    for (const { EMP_ID } of appResult.rows) {
+      if (!hrIds.has(EMP_ID)) {
+        await appConn.execute(
+          `UPDATE employees SET status='inactive' WHERE emp_id=:emp_id`,
+          { emp_id: EMP_ID }
+        )
+        console.log(`[HR-SYNC] 퇴직 비활성화: ${EMP_ID}`)
+      }
+    }
+
+    await appConn.commit()
+    console.log(`[HR-SYNC] 완료: ${new Date().toISOString()}`)
+  } catch (err) {
+    console.error('[HR-SYNC] 오류:', err.message)
+  } finally {
+    if (hrConn)  await hrConn.close().catch(() => {})
+    if (appConn) await appConn.close().catch(() => {})
+  }
+}
+
+// ── 스케줄러 등록 ─────────────────────────────────────────────────────────────
+const INTERVAL_MIN = parseInt(process.env.HR_SYNC_INTERVAL_MIN ?? '60')
+setInterval(syncEmployees, INTERVAL_MIN * 60 * 1000)
+syncEmployees() // 서버 시작 시 즉시 1회 실행
+
+module.exports = { syncEmployees }
+```
+
+#### `server/index.js` 에 연동 추가
+
+```js
+// server/index.js 상단에 추가
+if (process.env.HR_SYNC_ENABLED === 'true') {
+  require('./hr-sync')
+  console.log('[HR] 인사정보 자동 동기화 활성화')
+}
+```
+
+#### `.env` 에 활성화 플래그 추가
+
+```dotenv
+HR_SYNC_ENABLED=true
+```
+
+---
+
+### 16-4. 방식 B — HR 시스템 → Push API (실시간 웹훅)
+
+HR 시스템 개발팀과 협력하여 직원 변동(입사·퇴직·부서이동) 시 예약시스템 API를 호출하도록 구성합니다.
+
+#### 예약시스템에 추가할 API 엔드포인트 (`server/index.js`)
+
+```js
+/**
+ * POST /api/hr/sync
+ * HR 시스템에서 직원 변동 이벤트를 수신합니다.
+ * 헤더: X-HR-Secret: <공유 비밀키>
+ *
+ * Body 예시:
+ * {
+ *   "event": "upsert",           // "upsert" | "deactivate"
+ *   "employees": [
+ *     { "empId": "EMP-0001", "name": "홍길동", "dept": "총무팀", "email": "emp0001@kosha.or.kr" }
+ *   ]
+ * }
+ */
+app.post('/api/hr/sync', async (req, res) => {
+  // 공유 비밀키로 HR 시스템 요청 검증
+  const secret = req.headers['x-hr-secret']
+  if (secret !== process.env.HR_PUSH_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  const { event, employees } = req.body
+  if (!event || !Array.isArray(employees)) {
+    return res.status(400).json({ error: 'Invalid payload' })
+  }
+
+  const conn = await getConnection()
+  try {
+    for (const emp of employees) {
+      if (event === 'upsert') {
+        // MERGE INTO: 있으면 UPDATE, 없으면 INSERT
+        await conn.execute(`
+          MERGE INTO employees e
+          USING (SELECT :emp_id AS emp_id FROM DUAL) src
+          ON (e.emp_id = src.emp_id)
+          WHEN MATCHED THEN
+            UPDATE SET name=:name, dept=:dept, email=:email
+          WHEN NOT MATCHED THEN
+            INSERT (emp_id, name, dept, email, pw_hash, pw_salt, status, created_at)
+            VALUES (:emp_id, :name, :dept, :email, :pw_hash, :pw_salt, 'approved', SYSDATE)
+        `, {
+          emp_id: emp.empId, name: emp.name, dept: emp.dept, email: emp.email,
+          // 신규 직원 초기 비밀번호: 사번 + 생년월일 6자리 등 정책에 따라 설정
+          pw_hash: '(초기_해시값)', pw_salt: '(초기_salt)',
+        })
+      } else if (event === 'deactivate') {
+        await conn.execute(
+          `UPDATE employees SET status='inactive' WHERE emp_id=:emp_id`,
+          { emp_id: emp.empId }
+        )
+      }
+    }
+    await conn.commit()
+    res.json({ ok: true, processed: employees.length })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  } finally {
+    await conn.close()
+  }
+})
+```
+
+#### `.env` 설정
+
+```dotenv
+HR_PUSH_SECRET=your-shared-secret-key-here
+```
+
+---
+
+### 16-5. 방식 C — CSV 파일 교환 (배치)
+
+HR 시스템이 정해진 공유 폴더에 CSV를 내보내면, cron 으로 import 스크립트를 실행합니다.
+
+```
+# CSV 형식 (헤더 필수)
+사번,성명,부서,이메일,재직여부
+EMP-0001,홍길동,총무팀,emp0001@kosha.or.kr,Y
+EMP-0002,김철수,기술팀,emp0002@kosha.or.kr,N
+```
+
+```bash
+# crontab 등록 예 (매일 오전 7시)
+0 7 * * * node /opt/resort-app/server/hr-csv-import.js /shared/hr-export.csv >> /var/log/resort-hr-sync.log 2>&1
+```
+
+---
+
+### 16-6. 초기 비밀번호 안내 및 변경 정책
+
+| 항목 | 권장 정책 |
+|------|-----------|
+| 초기 비밀번호 | 사번 + 생년월일 앞 6자리 (예: `EMP-001`+`801231` → `EMP-001801231`) |
+| 첫 로그인 | 비밀번호 변경 강제 (현재 미구현 — `mustChangePw` 필드 추가 필요) |
+| 비밀번호 분배 | 팀장/부서장을 통해 초기 비밀번호 개별 안내 또는 내부 메일 발송 |
+| 계정 잠금 | 5회 연속 실패 시 15분 잠금 (현재 구현됨 — `security.js` 참고) |
+
+**`mustChangePw` 강제 변경 기능 추가 방법:**
+
+```js
+// employees 레코드에 must_change_pw 필드 추가
+// 로그인 성공 후 must_change_pw === true 이면 비밀번호 변경 페이지로 리다이렉트
+// 비밀번호 변경 완료 시 must_change_pw = false 로 업데이트
+```
+
+---
+
+### 16-7. SSO (Single Sign-On) 연동 고려사항
+
+공단 내부 SSO(예: Active Directory, LDAP, 공공 클라우드 IdP)가 있는 경우:
+
+| SSO 유형 | 연동 방법 |
+|----------|----------|
+| **LDAP / AD** | `ldapjs` 패키지로 BindDN 인증 — HR DB 조회 불필요, 비밀번호 관리 AD 위임 |
+| **SAML 2.0** | `passport-saml` 패키지 사용 — IdP 메타데이터 교환 필요 |
+| **OIDC / OAuth 2.0** | `passport-openidconnect` 패키지 사용 — 클라이언트 ID/Secret 발급 필요 |
+| **공공 전자서명** | 행정전자서명(GPKI) 클라이언트 인증서 기반 — 별도 미들웨어 필요 |
+
+> SSO 연동 시 `server/index.js` 의 `/api/login` 엔드포인트를 IdP 검증으로 교체하고,  
+> 프론트엔드 `LoginPage.jsx` 의 폼 로그인 대신 SSO 리다이렉트를 사용합니다.
+
+---
+
+### 16-8. 연동 체크리스트
+
+- [ ] HR DB 접근 전용 읽기 계정(`hr_readonly`) 생성 및 최소 권한 부여
+- [ ] 예약시스템 DB `employees` 테이블에 `email` 컬럼 추가 (§16-2 참고)
+- [ ] `.env` 에 `HR_DB_*` 또는 `HR_PUSH_SECRET` 설정
+- [ ] `server/hr-sync.js` 작성 및 `server/index.js` 에서 require
+- [ ] 초기 동기화 실행 및 계정 생성 확인
+- [ ] 초기 비밀번호 분배 완료
+- [ ] 테스트 계정으로 로그인 정상 확인
+- [ ] 퇴직자 비활성화 테스트 (`status='inactive'` → 로그인 불가 확인)
+- [ ] 동기화 로그 모니터링 설정 (`/var/log/resort-hr-sync.log`)
+
+---
+
 *문의사항은 개발팀에 연락하세요.*

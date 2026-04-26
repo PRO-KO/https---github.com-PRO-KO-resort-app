@@ -11,6 +11,11 @@ export const SK       = 'kosha-resort'
 
 // ※ simpleHash 제거 — src/security.js 의 hashPwd / verifyPwdCompat 사용
 
+// 성수기 월 (일별 체크인 제한 적용 대상)
+export const PEAK_MONTHS = [7, 8]
+// 성수기 일별 기본 제한 인원 (관리자가 개별 변경 가능)
+export const DEFAULT_PEAK_DAY_QUOTA = 5
+
 export const SEASON_MAP = {
   성수기:   [7, 8],
   준성수기: [1, 5, 6, 9, 10, 12],
@@ -50,6 +55,13 @@ export const DEFAULT_SETTINGS = {
   quotas:             Object.fromEntries([...Array(12)].map((_, i) => [i + 1, 20])),
   applicationPeriods: Object.fromEntries([...Array(12)].map((_, i) => [i + 1, { start: '', end: '' }])),
   fundBudget:         20_000_000,
+  // 성수기(7·8월) 일별 체크인 제한 인원: { 7: { 1: 5, 2: 5, ..., 31: 5 }, 8: {...} }
+  peakDayQuotas: Object.fromEntries(
+    PEAK_MONTHS.map(m => [m, Object.fromEntries([...Array(31)].map((_, i) => [i + 1, DEFAULT_PEAK_DAY_QUOTA]))])
+  ),
+  // 성수기 공휴일: { 7: [day, ...], 8: [day, ...] } — 관리자가 연도별로 직접 지정
+  // 광복절(8/15)은 매년 고정이므로 기본값으로 포함
+  peakHolidays: { 7: [], 8: [15] },
 }
 
 export const getSeason = m =>

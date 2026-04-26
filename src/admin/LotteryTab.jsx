@@ -115,15 +115,27 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
 
       {msg && <Alert type={msg.type}>{msg.text}</Alert>}
 
-      {/* 현황 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 20 }}>
-        {[['전체', monthApps.length], ['대기', pending.length], ['별도배정', manual.length], ['추첨당첨', selected.length], ['낙첨', rejected.length], ['잔여쿼터', remaining]].map(([k, v]) => (
-          <div key={k} style={{ background: k === '별도배정' ? 'var(--color-background-info)' : 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', padding: '12px', textAlign: 'center' }}>
-            <p style={{ fontSize: 11, color: k === '별도배정' ? 'var(--color-text-info)' : 'var(--color-text-tertiary)', marginBottom: 4 }}>{k}</p>
-            <p style={{ fontSize: 20, fontWeight: 500 }}>{v}</p>
+      {/* 현황 — 별도배정 카드는 관리자 모드 해제 시만 표시 */}
+      {(() => {
+        const items = [
+          ['전체',     monthApps.length, false],
+          ['대기',     pending.length,   false],
+          ...(adminUnlocked ? [['별도배정', manual.length, true]] : []),
+          ['추첨당첨', selected.length,  false],
+          ['낙첨',     rejected.length,  false],
+          ['잔여쿼터', remaining,        false],
+        ]
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${items.length}, 1fr)`, gap: 10, marginBottom: 20 }}>
+            {items.map(([k, v, isManual]) => (
+              <div key={k} style={{ background: isManual ? 'var(--color-background-info)' : 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', padding: '12px', textAlign: 'center' }}>
+                <p style={{ fontSize: 11, color: isManual ? 'var(--color-text-info)' : 'var(--color-text-tertiary)', marginBottom: 4 }}>{k}</p>
+                <p style={{ fontSize: 20, fontWeight: 500 }}>{v}</p>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        )
+      })()}
 
       {/* 별도배정 섹션 — 관리자 모드 잠금 해제 시만 표시 */}
       {adminUnlocked && (
@@ -159,7 +171,7 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
             <p style={{ fontSize: 13, color: 'var(--color-text-warning)', marginBottom: 10 }}>
               {confirm === 'rerun'
                 ? `추첨 당첨 결과를 초기화하고 재추첨합니다. 별도배정 ${manual.length}명은 유지됩니다.`
-                : `대기 중인 ${pending.length}명 중 ${remaining}명을 무작위 추첨합니다. (전체 쿼터 ${quota} - 별도배정 ${manual.length})`}
+                : `대기 중인 ${pending.length}명 중 ${remaining}명을 무작위 추첨합니다.${adminUnlocked ? ` (전체 쿼터 ${quota} - 별도배정 ${manual.length})` : ''}`}
             </p>
             <div style={{ display: 'flex', gap: 8 }}>
               <Btn variant="success" onClick={() => runLottery(confirm === 'rerun')}>실행</Btn>

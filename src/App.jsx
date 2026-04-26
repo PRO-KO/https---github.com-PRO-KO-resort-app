@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react'
-import { DEFAULT_SETTINGS } from './constants'
+import { useState, useEffect, useRef } from 'react'
+import { DEFAULT_SETTINGS, ADMIN_PW } from './constants'
 import { lsGet, lsSet, KEYS } from './storage'
 import { touchSession, isSessionValid, clearSession, SESSION_MS } from './security'
 import { KoshaLogo, Btn } from './components/UI'
 
 import LoginPage    from './pages/LoginPage'
-import RegisterPage from './pages/RegisterPage'
 import HomePage     from './pages/HomePage'
 import ApplyPage    from './pages/ApplyPage'
 import StatusPage   from './pages/StatusPage'
@@ -20,7 +19,13 @@ export default function App() {
   const [settings,    setSettings]    = useState(null)
   const [fundUsed,    setFundUsed]    = useState(0)
   // 세션 만료 경고 표시 여부
-  const [sessionWarn, setSessionWarn] = useState(false)
+  const [sessionWarn,        setSessionWarn]        = useState(false)
+  // 네비게이션 로고 5-click 관리자 진입
+  const [showNavAdminModal,  setShowNavAdminModal]  = useState(false)
+  const [navAdminPw,         setNavAdminPw]         = useState('')
+  const [navAdminErr,        setNavAdminErr]         = useState('')
+  const navLogoClicks = useRef(0)
+  const navLogoTimer  = useRef(null)
 
   useEffect(() => {
     const emp = lsGet(KEYS.employees, {})
@@ -30,6 +35,8 @@ export default function App() {
     if (!raw.rooms)              raw.rooms              = DEFAULT_SETTINGS.rooms
     if (!raw.applicationPeriods) raw.applicationPeriods = DEFAULT_SETTINGS.applicationPeriods
     if (!raw.fundBudget)         raw.fundBudget         = DEFAULT_SETTINGS.fundBudget
+    if (!raw.peakDayQuotas)      raw.peakDayQuotas      = DEFAULT_SETTINGS.peakDayQuotas
+    if (!raw.peakHolidays)       raw.peakHolidays       = DEFAULT_SETTINGS.peakHolidays
     setEmployees(emp); setApps(a); setSettings(raw); setFundUsed(fu)
   }, [])
 
@@ -72,6 +79,25 @@ export default function App() {
   const loginUser  = user => { setCurrentUser(user); setAdminAuth(false); setPage('home'); touchSession() }
   const loginAdmin = ()   => { setCurrentUser(null); setAdminAuth(true);  setPage('admin'); touchSession() }
 
+  const handleNavLogoClick = () => {
+    navLogoClicks.current += 1
+    if (navLogoTimer.current) clearTimeout(navLogoTimer.current)
+    navLogoTimer.current = setTimeout(() => { navLogoClicks.current = 0 }, 2000)
+    if (navLogoClicks.current >= 5) {
+      navLogoClicks.current = 0; clearTimeout(navLogoTimer.current)
+      setNavAdminPw(''); setNavAdminErr(''); setShowNavAdminModal(true)
+    }
+  }
+
+  const confirmNavAdmin = () => {
+    if (navAdminPw === ADMIN_PW) {
+      setShowNavAdminModal(false); setNavAdminPw(''); setNavAdminErr('')
+      loginAdmin()
+    } else {
+      setNavAdminErr('비밀번호가 올바르지 않습니다.')
+    }
+  }
+
   const handleLogout = () => {
     setCurrentUser(null); setAdminAuth(false); setPage('login')
     setSessionWarn(false); clearSession()
@@ -85,12 +111,10 @@ export default function App() {
 
   const sharedProps = { employees, saveEmp, setPage, loginUser, loginAdmin }
 
-  if (page === 'login')    return <LoginPage    {...sharedProps} />
-  if (page === 'register') return <RegisterPage {...sharedProps} />
+  if (page === 'login') return <LoginPage {...sharedProps} />
   if (!currentUser && !adminAuth) return <LoginPage {...sharedProps} />
 
-  const pendingCnt = Object.values(employees).filter(e => e.status === 'pending').length
-  const navItems   = adminAuth
+  const navItems = adminAuth
     ? []
     : [{ id: 'home', label: '홈' }, { id: 'apply', label: '예약 신청' }, { id: 'status', label: '내 신청 현황' }]
 
@@ -117,7 +141,7 @@ export default function App() {
 
       <nav style={{ background: 'var(--color-background-primary)', borderBottom: '0.5px solid var(--color-border-tertiary)', padding: '0 20px', display: 'flex', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
         <div style={{ padding: '8px 16px 8px 0', borderRight: '0.5px solid var(--color-border-tertiary)', marginRight: 12 }}>
-          <KoshaLogo compact />
+          <KoshaLogo compact onClick={handleNavLogoClick} style={{ cursor: 'pointer', userSelect: 'none' }} />
         </div>
         {navItems.map(n => (
           <button key={n.id} onClick={() => setPage(n.id)}
@@ -129,7 +153,6 @@ export default function App() {
           <button onClick={() => setPage('admin')}
             style={{ background: 'none', border: 'none', padding: '14px 14px', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-sans)', color: page === 'admin' ? 'var(--color-text-info)' : 'var(--color-text-secondary)', borderBottom: page === 'admin' ? '2px solid var(--color-text-info)' : '2px solid transparent', fontWeight: page === 'admin' ? 500 : 400 }}>
             관리자
-            {pendingCnt > 0 && <span style={{ background: 'var(--color-background-danger)', color: 'var(--color-text-danger)', fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 99 }}>{pendingCnt}</span>}
           </button>
         )}
         <div style={{ flex: 1 }} />
@@ -145,6 +168,40 @@ export default function App() {
         {page === 'status' && <StatusPage  {...ctx} />}
         {page === 'admin'  && <AdminLayout {...ctx} />}
       </main>
+
+      {/* 네비게이션 로고 5-click 관리자 진입 모달 */}
+      {showNavAdminModal && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget) { setShowNavAdminModal(false); setNavAdminPw(''); setNavAdminErr('') } }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
+        >
+          <div style={{ background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-lg)', padding: '28px 28px 24px', width: 340, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', fontFamily: 'var(--font-sans)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 500 }}>관리자 로그인</h3>
+              <button onClick={() => { setShowNavAdminModal(false); setNavAdminPw(''); setNavAdminErr('') }}
+                style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--color-text-tertiary)', cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+            {navAdminErr && (
+              <div style={{ background: 'var(--color-background-danger)', border: '0.5px solid var(--color-border-danger)', borderRadius: 'var(--border-radius-sm)', padding: '8px 12px', marginBottom: 12, fontSize: 13, color: 'var(--color-text-danger)' }}>
+                {navAdminErr}
+              </div>
+            )}
+            <input
+              type="password"
+              value={navAdminPw}
+              onChange={e => { setNavAdminPw(e.target.value); setNavAdminErr('') }}
+              onKeyDown={e => e.key === 'Enter' && confirmNavAdmin()}
+              placeholder="관리자 비밀번호"
+              style={{ width: '100%', marginBottom: 14 }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn variant="primary" fullWidth onClick={confirmNavAdmin}>확인</Btn>
+              <Btn fullWidth onClick={() => { setShowNavAdminModal(false); setNavAdminPw(''); setNavAdminErr('') }}>취소</Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

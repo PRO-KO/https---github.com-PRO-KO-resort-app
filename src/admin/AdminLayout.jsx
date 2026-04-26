@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Alert } from '../components/UI'
-import ApprovalTab  from './ApprovalTab'
 import LotteryTab   from './LotteryTab'
 import PeriodTab    from './PeriodTab'
 import FundTab      from './FundTab'
@@ -10,13 +9,11 @@ import EmailTab     from './EmailTab'
 import AccountsTab  from './AccountsTab'
 
 export default function AdminLayout({ employees, apps, settings, fundUsed, saveEmp, saveApps, saveSettings, saveFundUsed, adminAuth }) {
-  const pendingCnt = Object.values(employees).filter(e => e.status === 'pending').length
-  const [tab, setTab] = useState(pendingCnt > 0 ? 'approval' : 'lottery')
+  const [tab, setTab] = useState('lottery')
 
   if (!adminAuth) return <Alert type="danger">관리자 권한이 없습니다.</Alert>
 
   const TABS = [
-    { id: 'approval', label: '가입 승인',    badge: pendingCnt },
     { id: 'lottery',  label: '추첨 실행'     },
     { id: 'period',   label: '신청 기간·인원' },
     { id: 'fund',     label: '발전기금 현황'  },
@@ -55,7 +52,6 @@ export default function AdminLayout({ employees, apps, settings, fundUsed, saveE
       </div>
 
       {/* 탭 콘텐츠 */}
-      {tab === 'approval' && <ApprovalTab  {...ctx} />}
       {tab === 'lottery'  && <LotteryTab   {...ctx} />}
       {tab === 'period'   && <PeriodTab    {...ctx} />}
       {tab === 'fund'     && <FundTab      {...ctx} />}

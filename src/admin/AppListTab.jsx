@@ -107,6 +107,7 @@ export default function AppListTab({ apps, employees }) {
                   <Th k="phone"        label="휴대폰" />
                   <Th k="appliedAt"    label="신청일시" />
                   <Th k="month"        label="희망월" />
+                  <Th k="checkInDate"  label="체크인" />
                   <Th k="roomType"     label="객실"   />
                   <Th k="nights"       label="박수"   />
                   <Th k="total"        label="숙박료" />
@@ -128,6 +129,11 @@ export default function AppListTab({ apps, employees }) {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                           {a.month}월 <SeasonBadge season={a.season} />
                         </div>
+                      </td>
+                      <td style={{ padding: '7px 9px', whiteSpace: 'nowrap', color: a.checkInDate ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
+                        {a.checkInDate
+                          ? new Date(a.checkInDate + 'T00:00:00').toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })
+                          : '-'}
                       </td>
                       <td style={{ padding: '7px 9px' }}>{a.roomType}</td>
                       <td style={{ padding: '7px 9px' }}>{a.nights}박</td>
