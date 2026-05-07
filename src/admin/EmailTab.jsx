@@ -5,7 +5,6 @@ import { Btn, Alert } from '../components/UI'
 
 export default function EmailTab({ apps, employees }) {
   const [selMonth,  setSelMonth]  = useState(new Date().getMonth() + 1)
-  const [emailType, setEmailType] = useState('winner')
   const [sending,   setSending]   = useState(false)
   const [results,   setResults]   = useState({})
   const [preview,   setPreview]   = useState(null)
@@ -13,9 +12,7 @@ export default function EmailTab({ apps, employees }) {
 
   const allTargets = apps.filter(a =>
     a.month === selMonth && a.year === YEAR &&
-    (emailType === 'winner'
-      ? a.status === 'selected' || a.status === 'manual'
-      : a.status === 'rejected')
+    ['selected', 'manual', 'rejected'].includes(a.status)
   )
 
   // 검색 필터 적용
@@ -34,11 +31,12 @@ export default function EmailTab({ apps, employees }) {
   const errorCnt = Object.values(results).filter(v => v === 'error').length
 
   const sendOne = async (app) => {
-    const to      = getRecipient(app.empId, emailType)
-    const subject = emailType === 'winner'
+    const type    = app.status === 'rejected' ? 'loser' : 'winner'
+    const to      = getRecipient(app.empId)
+    const subject = type === 'winner'
       ? `[안전보건공단] 휴양소 예약 당첨 안내 (${selMonth}월)`
       : `[안전보건공단] 휴양소 예약 신청 결과 안내 (${selMonth}월)`
-    const body = buildEmailBody(emailType, app, employees[app.empId], selMonth)
+    const body = buildEmailBody(type, app, employees[app.empId], selMonth)
     setResults(r => ({ ...r, [app.id]: 'sending' }))
     try {
       await sendEmail(to, subject, body)
@@ -72,13 +70,9 @@ export default function EmailTab({ apps, employees }) {
             {[...Array(12)].map((_, i) => <option key={i + 1} value={i + 1}>{MONTHS_KR[i]}</option>)}
           </select>
         </div>
-        <div>
-          <label style={{ fontSize: 13, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 6 }}>메일 종류</label>
-          <select value={emailType} onChange={e => { setEmailType(e.target.value); setResults({}); setSearch('') }} style={{ width: 260 }}>
-            <option value="winner">당첨 메일 (외부 @kosha.or.kr)</option>
-            <option value="loser"> 낙첨 메일 (내부 @kosha-kms1.kosha.or.kr)</option>
-          </select>
-        </div>
+        <Alert type="info" style={{ marginBottom: 0 }}>
+          추첨 결과가 확정되면 당첨·낙첨과 무관하게 모든 신청자에게 내부 메일로 알림이 발송됩니다.
+        </Alert>
       </div>
 
       {(sentCnt > 0 || errorCnt > 0) && (
@@ -104,7 +98,7 @@ export default function EmailTab({ apps, employees }) {
       {targetApps.length === 0
         ? <div style={{ background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-lg)', padding: '28px', textAlign: 'center' }}>
             <p style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
-              {allTargets.length > 0 && search ? `검색 결과 없음 (전체 ${allTargets.length}명)` : `${selMonth}월 ${emailType === 'winner' ? '당첨자' : '낙첨자'}가 없거나 추첨이 실행되지 않았습니다.`}
+              {allTargets.length > 0 && search ? `검색 결과 없음 (전체 ${allTargets.length}명)` : `${selMonth}월 결과 알림 대상자가 없거나 추첨이 실행되지 않았습니다.`}
             </p>
           </div>
         : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -119,7 +113,7 @@ export default function EmailTab({ apps, employees }) {
                       {emp?.phone && <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{emp.phone}</span>}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
-                      → {getRecipient(app.empId, emailType)}
+                      → {getRecipient(app.empId)}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 2 }}>
                       {app.roomType} / {app.nights}박 / 지원금 {won(app.subsidy)}
@@ -143,12 +137,12 @@ export default function EmailTab({ apps, employees }) {
             <button onClick={() => setPreview(null)} style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>×</button>
           </div>
           <div style={{ padding: 16 }}>
-            <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 4 }}>받는 사람: <strong>{getRecipient(preview.empId, emailType)}</strong></p>
+            <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 4 }}>받는 사람: <strong>{getRecipient(preview.empId)}</strong></p>
             <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 12 }}>
-              제목: {emailType === 'winner' ? `[안전보건공단] 휴양소 예약 당첨 안내 (${selMonth}월)` : `[안전보건공단] 휴양소 예약 신청 결과 안내 (${selMonth}월)`}
+              제목: {preview.status === 'rejected' ? `[안전보건공단] 휴양소 예약 신청 결과 안내 (${selMonth}월)` : `[안전보건공단] 휴양소 예약 당첨 안내 (${selMonth}월)`}
             </p>
             <pre style={{ fontSize: 13, lineHeight: 1.8, color: 'var(--color-text-primary)', whiteSpace: 'pre-wrap', fontFamily: 'var(--font-sans)', background: 'var(--color-background-primary)', padding: '14px 16px', borderRadius: 'var(--border-radius-md)' }}>
-              {buildEmailBody(emailType, preview, employees[preview.empId], selMonth)}
+              {buildEmailBody(preview.status === 'rejected' ? 'loser' : 'winner', preview, employees[preview.empId], selMonth)}
             </pre>
           </div>
         </div>

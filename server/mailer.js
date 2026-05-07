@@ -9,7 +9,7 @@
  *
  *   ① 가입 신청 알림       → 관리자에게 (새 계정 승인 요청)
  *   ② 계정 승인/거절 알림  → 해당 직원에게
- *   ③ 추첨 결과 알림       → 당첨/미당첨 직원에게
+ *   ③ 추첨 결과 알림       → 결과와 무관하게 모든 신청자에게 내부 메일 발송
  *   ④ 예약 취소 확인       → 취소 처리된 직원에게
  *
  * ══════════════════════════════════════════════════════════════════════════════
@@ -81,10 +81,10 @@
  *   -- 가입 신청 시 이메일 입력 필드 추가 필요
  *   -- RegisterPage.jsx에 email 입력 필드 추가 → POST /api/employees/register body에 포함
  *
- * [방법 B] 사번으로 이메일 주소 생성 (사번 = 이메일 ID 규칙인 경우)
+ * [방법 B] 사번으로 내부 이메일 주소 생성 (사번 = 내부 메일 ID 규칙인 경우)
  *
- *   // 예: 사번 '20240001' → 'e20240001@kosha.or.kr'
- *   const empEmail = `e${empId.toLowerCase()}@kosha.or.kr`
+ *   // 예: 사번 '20240001' → '20240001@kosha-kms1.kosha.or.kr'
+ *   const empEmail = internalEmailFor(empId)
  *
  * [방법 C] 별도 인사 DB 조회 (HR 시스템과 연동)
  *
@@ -101,6 +101,10 @@ import nodemailer from 'nodemailer'
 // MAIL_ENABLED=false이면 실제 발송 없이 콘솔에 출력만 합니다 (개발/테스트 유용)
 // ──────────────────────────────────────────────────────────────────────────────
 const MAIL_ENABLED = process.env.MAIL_ENABLED === 'true'
+const MAIL_INTERNAL_DOMAIN = process.env.MAIL_INTERNAL_DOMAIN || 'kosha-kms1.kosha.or.kr'
+
+export const internalEmailFor = empId =>
+    `${String(empId || '').trim().toLowerCase()}@${MAIL_INTERNAL_DOMAIN}`
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Nodemailer Transporter 생성
@@ -362,22 +366,21 @@ export async function mailAccountRejected({ empId, empEmail, reason }) {
 
 
 /**
- * ④ 추첨 결과 알림 → 당첨자에게 (개별 발송)
+ * ④ 추첨 결과 알림 → 모든 신청자에게 내부 메일 발송 (개별 발송)
  *
  * 호출 위치: index.js — PUT /api/apps (추첨 결과 일괄 업데이트) 완료 후
  *
  *   import { mailLotteryResult } from './mailer.js'
  *
- *   // 추첨 결과 저장 후 각 신청자에게 메일 발송
- *   // (apps 배열에 empEmail이 포함되어야 합니다 — GET /api/apps 응답에 추가 필요)
+ *   // 추첨 결과 저장 후 결과와 무관하게 모든 신청자에게 내부 메일 발송
  *   const notifications = apps.map(app =>
  *     mailLotteryResult({
  *       empId:    app.empId,
- *       empEmail: `e${app.empId.toLowerCase()}@kosha.or.kr`,  // 방법 B 예시
+ *       empEmail: internalEmailFor(app.empId),
  *       month:    app.month,
  *       roomType: app.roomType,
  *       nights:   app.nights,
- *       status:   app.status,  // 'selected' | 'rejected'
+ *       status:   app.status,  // 'selected' | 'manual' | 'rejected'
  *     })
  *   )
  *   // Promise.allSettled: 일부 메일 실패 시에도 나머지 계속 발송
@@ -386,7 +389,7 @@ export async function mailAccountRejected({ empId, empEmail, reason }) {
  * @param {{ empId, empEmail, month, roomType, nights, status }} info
  */
 export async function mailLotteryResult({ empId, empEmail, month, roomType, nights, status }) {
-    const isSelected = status === 'selected'
+    const isSelected = status === 'selected' || status === 'manual'
 
     const roomLabel = {
         standard:  '일반형',
@@ -396,7 +399,7 @@ export async function mailLotteryResult({ empId, empEmail, month, roomType, nigh
     }[roomType] || roomType
 
     await send({
-        to: empEmail,
+        to: empEmail || internalEmailFor(empId),
         subject: isSelected
             ? `[휴양소 예약] 축하합니다! ${month}월 추첨 당첨 안내`
             : `[휴양소 예약] ${month}월 추첨 결과 안내`,

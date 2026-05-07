@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { won, YEAR, MONTHS_KR, getSeason, ADMIN_PW } from '../constants'
+import { won, YEAR, MONTHS_KR, getSeason, ADMIN_PW, ADMIN_PW_CONFIGURED } from '../constants'
+import { checkLock, clearLock, recordFail, secureTextEqual } from '../security'
 import { Btn, Card, Alert, AppStatusBadge } from '../components/UI'
 
 export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFundUsed }) {
@@ -29,9 +30,20 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
   }
 
   const confirmAdminPw = () => {
-    if (pwInput === ADMIN_PW) {
+    if (!ADMIN_PW_CONFIGURED) {
+      setPwErr('관리자 비밀번호가 설정되지 않았습니다. .env에 VITE_ADMIN_PW를 8자 이상으로 설정해주세요.')
+      return
+    }
+    const lock = checkLock('admin')
+    if (lock.locked) {
+      setPwErr(`관리자 로그인 시도 횟수 초과. ${lock.remainMin}분 후 다시 시도해주세요.`)
+      return
+    }
+    if (secureTextEqual(pwInput, ADMIN_PW)) {
+      clearLock('admin')
       setAdminUnlocked(true); setShowPwModal(false); setPwInput(''); setPwErr('')
     } else {
+      recordFail('admin')
       setPwErr('비밀번호가 올바르지 않습니다.')
     }
   }

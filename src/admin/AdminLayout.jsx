@@ -7,11 +7,14 @@ import RoomsTab     from './RoomsTab'
 import AppListTab   from './AppListTab'
 import EmailTab     from './EmailTab'
 import AccountsTab  from './AccountsTab'
+import ApprovalTab  from './ApprovalTab'
 
-export default function AdminLayout({ employees, apps, settings, fundUsed, saveEmp, saveApps, saveSettings, saveFundUsed, adminAuth }) {
+export default function AdminLayout({ employees, apps, settings, fundUsed, saveEmp, saveApps, saveSettings, saveFundUsed, refreshEmp, adminAuth }) {
   const [tab, setTab] = useState('lottery')
 
   if (!adminAuth) return <Alert type="danger">관리자 권한이 없습니다.</Alert>
+
+  const pendingCount = Object.values(employees).filter(e => e.status === 'pending').length
 
   const TABS = [
     { id: 'lottery',  label: '추첨 실행'     },
@@ -21,9 +24,10 @@ export default function AdminLayout({ employees, apps, settings, fundUsed, saveE
     { id: 'applist',  label: '신청인 현황'    },
     { id: 'email',    label: '메일 발송'      },
     { id: 'accounts', label: '계정 관리'      },
+    { id: 'approval', label: '가입 승인', badge: pendingCount },
   ]
 
-  const ctx = { employees, apps, settings, fundUsed, saveEmp, saveApps, saveSettings, saveFundUsed }
+  const ctx = { employees, apps, settings, fundUsed, saveEmp, saveApps, saveSettings, saveFundUsed, refreshEmp }
 
   return (
     <div>
@@ -59,6 +63,7 @@ export default function AdminLayout({ employees, apps, settings, fundUsed, saveE
       {tab === 'applist'  && <AppListTab   {...ctx} />}
       {tab === 'email'    && <EmailTab     {...ctx} />}
       {tab === 'accounts' && <AccountsTab  {...ctx} />}
+      {tab === 'approval' && <ApprovalTab  {...ctx} />}
     </div>
   )
 }

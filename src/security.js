@@ -18,12 +18,23 @@ const PBKDF2_ITER  = 100_000   // OWASP 권장 최솟값
 const HASH_BITS    = 256
 const SALT_BYTES   = 16
 
+export const cryptoErrorMessage =
+  '이 PC의 브라우저 보안 기능(Web Crypto)을 사용할 수 없습니다. 최신 Chrome/Edge로 접속하거나 HTTPS/localhost 환경에서 다시 시도해주세요.'
+
+const getWebCrypto = () => {
+  const webCrypto = globalThis.crypto
+  if (!webCrypto?.getRandomValues || !webCrypto?.subtle) {
+    throw new Error(cryptoErrorMessage)
+  }
+  return webCrypto
+}
+
 const hexToU8 = h => new Uint8Array(h.match(/.{2}/g).map(b => parseInt(b, 16)))
 const u8ToHex = u => Array.from(u).map(b => b.toString(16).padStart(2, '0')).join('')
 
 /** 암호학적으로 안전한 난수 솔트 생성 (CSPRNG) */
 export const generateSalt = () =>
-  u8ToHex(crypto.getRandomValues(new Uint8Array(SALT_BYTES)))
+  u8ToHex(getWebCrypto().getRandomValues(new Uint8Array(SALT_BYTES)))
 
 /**
  * PBKDF2-SHA256으로 패스워드 해시 생성
@@ -33,10 +44,11 @@ export const generateSalt = () =>
  */
 export const hashPwd = async (password, salt) => {
   const enc  = new TextEncoder()
-  const key  = await crypto.subtle.importKey(
+  const subtle = getWebCrypto().subtle
+  const key  = await subtle.importKey(
     'raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']
   )
-  const bits = await crypto.subtle.deriveBits(
+  const bits = await subtle.deriveBits(
     { name: 'PBKDF2', hash: 'SHA-256', salt: hexToU8(salt), iterations: PBKDF2_ITER },
     key, HASH_BITS
   )
@@ -53,6 +65,8 @@ const timingSafeEqual = (a, b) => {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
   return diff === 0
 }
+
+export const secureTextEqual = (a, b) => timingSafeEqual(String(a ?? ''), String(b ?? ''))
 
 /** 패스워드 검증 */
 export const verifyPwd = async (password, storedHash, storedSalt) => {
@@ -110,59 +124,126 @@ export const sanitize = {
   phone: v => String(v ?? '').trim().slice(0, 20).replace(/[^0-9\-\+\s]/g, ''),
 }
 
-// ── 5. 로그인 시도 제한 (Brute-force 방지) ────────────────────────────────────
+/** 사번은 저장/로그인 비교 시 대소문자 차이로 갈라지지 않도록 대문자로 통일 */
+export const normalizeEmpId = v => sanitize.empId(v).toUpperCase()
+
+// ── 5. 런타임/브라우저 호환성 ───────────────────────────────────────────────
+
+const storageAvailable = type => {
+  try {
+    const store = globalThis[type]
+    const probe = '__kosha_probe__'
+    store.setItem(probe, probe)
+    store.removeItem(probe)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export const getRuntimeCompatibility = () => {
+  const issues = []
+  if (!globalThis.crypto?.getRandomValues || !globalThis.crypto?.subtle) {
+    issues.push('브라우저 보안 기능(Web Crypto)을 사용할 수 없습니다. 최신 Chrome/Edge 또는 HTTPS 환경이 필요합니다.')
+  }
+  if (typeof TextEncoder === 'undefined') {
+    issues.push('문자 인코딩 기능(TextEncoder)을 사용할 수 없습니다. 브라우저 업데이트가 필요합니다.')
+  }
+  if (!storageAvailable('localStorage')) {
+    issues.push('localStorage를 사용할 수 없어 계정/신청 데이터가 이 브라우저에 저장되지 않을 수 있습니다.')
+  }
+  if (!storageAvailable('sessionStorage')) {
+    issues.push('sessionStorage를 사용할 수 없어 로그인 세션이 새로고침 후 유지되지 않을 수 있습니다.')
+  }
+  return { ok: issues.length === 0, issues }
+}
+
+// ── 6. 로그인 시도 제한 (Brute-force 방지) ────────────────────────────────────
 
 export const MAX_ATTEMPTS = 5
 const LOCKOUT_MS          = 15 * 60 * 1000   // 15분
 const _lockKey            = id => `_llk_${btoa(id).replace(/=/g, '')}`
+const memoryLocks         = new Map()
 
 /** 현재 잠금 상태 확인 */
 export const checkLock = id => {
+  const k = _lockKey(id)
   try {
-    const raw = localStorage.getItem(_lockKey(id))
+    const raw = localStorage.getItem(k) || memoryLocks.get(k)
     if (!raw) return { locked: false }
     const d = JSON.parse(raw)
-    if (Date.now() > d.until) { localStorage.removeItem(_lockKey(id)); return { locked: false } }
+    if (Date.now() > d.until) {
+      localStorage.removeItem(k)
+      memoryLocks.delete(k)
+      return { locked: false }
+    }
     return { locked: true, remainMin: Math.ceil((d.until - Date.now()) / 60000) }
-  } catch { return { locked: false } }
+  } catch {
+    const raw = memoryLocks.get(k)
+    if (!raw) return { locked: false }
+    try {
+      const d = JSON.parse(raw)
+      if (Date.now() > d.until) { memoryLocks.delete(k); return { locked: false } }
+      return { locked: true, remainMin: Math.ceil((d.until - Date.now()) / 60000) }
+    } catch {
+      return { locked: false }
+    }
+  }
 }
 
 /** 로그인 실패 기록 */
 export const recordFail = id => {
+  const k = _lockKey(id)
   try {
-    const raw = localStorage.getItem(_lockKey(id))
+    const raw = localStorage.getItem(k) || memoryLocks.get(k)
     const d   = raw ? JSON.parse(raw) : { attempts: 0, until: 0 }
     d.attempts += 1
     if (d.attempts >= MAX_ATTEMPTS) d.until = Date.now() + LOCKOUT_MS
-    localStorage.setItem(_lockKey(id), JSON.stringify(d))
+    const next = JSON.stringify(d)
+    localStorage.setItem(k, next)
+    memoryLocks.set(k, next)
     return { attempts: d.attempts, max: MAX_ATTEMPTS, locked: d.attempts >= MAX_ATTEMPTS }
-  } catch { return { attempts: 1, max: MAX_ATTEMPTS, locked: false } }
+  } catch {
+    const raw = memoryLocks.get(k)
+    const d = raw ? JSON.parse(raw) : { attempts: 0, until: 0 }
+    d.attempts += 1
+    if (d.attempts >= MAX_ATTEMPTS) d.until = Date.now() + LOCKOUT_MS
+    memoryLocks.set(k, JSON.stringify(d))
+    return { attempts: d.attempts, max: MAX_ATTEMPTS, locked: d.attempts >= MAX_ATTEMPTS }
+  }
 }
 
 /** 잠금 해제 (로그인 성공 시) */
 export const clearLock = id => {
-  try { localStorage.removeItem(_lockKey(id)) } catch {}
+  const k = _lockKey(id)
+  memoryLocks.delete(k)
+  try { localStorage.removeItem(k) } catch {}
 }
 
-// ── 6. 세션 관리 (30분 비활동 시 자동 만료) ───────────────────────────────────
+// ── 7. 세션 관리 (30분 비활동 시 자동 만료) ───────────────────────────────────
 
 const SESSION_KEY        = '_sess_ts'
 export const SESSION_MS  = 30 * 60 * 1000   // 30분
+let memorySessionTs = ''
 
 /** 세션 활동 시각 갱신 */
 export const touchSession = () => {
-  try { sessionStorage.setItem(SESSION_KEY, String(Date.now())) } catch {}
+  memorySessionTs = String(Date.now())
+  try { sessionStorage.setItem(SESSION_KEY, memorySessionTs) } catch {}
 }
 
 /** 세션 유효 여부 확인 */
 export const isSessionValid = () => {
   try {
-    const t = sessionStorage.getItem(SESSION_KEY)
+    const t = sessionStorage.getItem(SESSION_KEY) || memorySessionTs
     return !!t && (Date.now() - parseInt(t)) < SESSION_MS
-  } catch { return false }
+  } catch {
+    return !!memorySessionTs && (Date.now() - parseInt(memorySessionTs)) < SESSION_MS
+  }
 }
 
 /** 세션 제거 */
 export const clearSession = () => {
+  memorySessionTs = ''
   try { sessionStorage.removeItem(SESSION_KEY) } catch {}
 }

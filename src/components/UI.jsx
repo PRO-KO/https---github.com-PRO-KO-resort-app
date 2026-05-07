@@ -121,10 +121,11 @@ export function EmpStatusBadge({ status }) {
 // ── 신청 상태 배지 ────────────────────────────────────────────────────────
 
 const APP_STATUS = {
-  pending:  { label: '대기',     bg: 'var(--color-background-warning)',  text: 'var(--color-text-warning)'  },
-  selected: { label: '당첨 🎉',  bg: 'var(--color-background-success)',  text: 'var(--color-text-success)'  },
-  rejected: { label: '낙첨',     bg: 'var(--color-background-secondary)',text: 'var(--color-text-tertiary)' },
-  manual:   { label: '별도배정', bg: 'var(--color-background-info)',     text: 'var(--color-text-info)'     },
+  pending:   { label: '대기',     bg: 'var(--color-background-warning)',  text: 'var(--color-text-warning)'  },
+  selected:  { label: '당첨 🎉',  bg: 'var(--color-background-success)',  text: 'var(--color-text-success)'  },
+  rejected:  { label: '낙첨',     bg: 'var(--color-background-secondary)',text: 'var(--color-text-tertiary)' },
+  manual:    { label: '별도배정', bg: 'var(--color-background-info)',     text: 'var(--color-text-info)'     },
+  cancelled: { label: '취소됨',   bg: 'var(--color-background-secondary)',text: 'var(--color-text-tertiary)' },
 }
 
 export function AppStatusBadge({ status }) {

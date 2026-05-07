@@ -4,64 +4,36 @@
     sans-serif;
 
   --color-background-primary:   #ffffff;
-  --color-background-secondary: #f5f5f5;
-  --color-background-tertiary:  #efefef;
+  --color-background-secondary: #f4f6f8;
+  --color-background-tertiary:  #ebeef2;
 
-  --color-background-info:      #e8f4fd;
-  --color-background-success:   #e8f7ee;
-  --color-background-warning:   #fff8e6;
-  --color-background-danger:    #fdecea;
+  --color-background-info:      #dbeafe;
+  --color-background-success:   #dcfce7;
+  --color-background-warning:   #fef9c3;
+  --color-background-danger:    #fee2e2;
 
-  --color-border-tertiary:  #e0e0e0;
-  --color-border-secondary: #cacaca;
-  --color-border-info:      #90caf9;
-  --color-border-success:   #a5d6a7;
-  --color-border-warning:   #ffe082;
-  --color-border-danger:    #ef9a9a;
+  --color-border-tertiary:  #d1d5db;
+  --color-border-secondary: #9ca3af;
+  --color-border-info:      #60a5fa;
+  --color-border-success:   #4ade80;
+  --color-border-warning:   #fbbf24;
+  --color-border-danger:    #f87171;
 
-  --color-text-primary:   #111111;
-  --color-text-secondary: #555555;
-  --color-text-tertiary:  #999999;
+  --color-text-primary:   #0f172a;
+  --color-text-secondary: #374151;
+  --color-text-tertiary:  #6b7280;
 
-  --color-text-info:    #1565c0;
-  --color-text-success: #2e7d32;
-  --color-text-warning: #e65100;
-  --color-text-danger:  #c62828;
+  --color-text-info:    #1d4ed8;
+  --color-text-success: #15803d;
+  --color-text-warning: #b45309;
+  --color-text-danger:  #b91c1c;
 
   --border-radius-sm: 4px;
   --border-radius-md: 8px;
   --border-radius-lg: 12px;
 }
 
-/* ── 다크 모드 ──────────────────────────────────────────────────────────── */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-background-primary:   #1e1e1e;
-    --color-background-secondary: #2a2a2a;
-    --color-background-tertiary:  #141414;
-
-    --color-background-info:    #0d2a4a;
-    --color-background-success: #0d2e18;
-    --color-background-warning: #2e1f00;
-    --color-background-danger:  #2e0e0e;
-
-    --color-border-tertiary:  #333;
-    --color-border-secondary: #444;
-    --color-border-info:      #1565c0;
-    --color-border-success:   #2e7d32;
-    --color-border-warning:   #e65100;
-    --color-border-danger:    #c62828;
-
-    --color-text-primary:   #eeeeee;
-    --color-text-secondary: #aaaaaa;
-    --color-text-tertiary:  #666666;
-
-    --color-text-info:    #90caf9;
-    --color-text-success: #a5d6a7;
-    --color-text-warning: #ffcc80;
-    --color-text-danger:  #ef9a9a;
-  }
-}
+/* 다크 모드 비활성화 — 항상 라이트 모드 유지 */
 
 /* ── 리셋 & 기본 ────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

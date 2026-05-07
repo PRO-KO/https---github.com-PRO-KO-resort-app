@@ -70,7 +70,7 @@ export default function HomePage({ settings, apps, setPage }) {
                   <div style={{ textAlign: 'right' }}>
                     {/* 본인 결제금액만 표시 */}
                     <span style={{ fontSize: 13, fontWeight: 500 }}>
-                      본인부담 {Math.round(room.prices[s] * (1 - room.supportRate / 100)).toLocaleString('ko-KR')}원
+                      {Math.round(room.prices[s] * (1 - room.supportRate / 100)).toLocaleString('ko-KR')}원
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>/박 (최대 {room.maxNights}박)</span>
                   </div>

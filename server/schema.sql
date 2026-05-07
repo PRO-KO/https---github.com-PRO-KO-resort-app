@@ -168,3 +168,34 @@ COMMIT;
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON KOSHA_APPS      TO RESORT_APP;
 -- GRANT SELECT, INSERT, UPDATE         ON KOSHA_SETTINGS  TO RESORT_APP;
 -- GRANT CREATE SESSION TO RESORT_APP;
+
+
+-- ── 5. 날짜별 객실 특별 요금 ───────────────────────────────────────────────────
+-- 특정 날짜 또는 기간에 대한 객실 요금 오버라이드
+-- 우선순위: 적용 기간이 짧은(구체적인) 항목이 높은 우선순위를 가집니다.
+-- 같은 날짜에 여러 규칙이 적용될 경우 DATE_TO - DATE_FROM 이 가장 작은 규칙이 선택됩니다.
+
+CREATE TABLE KOSHA_ROOM_PRICES (
+    PRICE_ID    VARCHAR2(36)    NOT NULL,         -- UUID (SYS_GUID 또는 애플리케이션에서 생성)
+    ROOM_ID     VARCHAR2(50)    NOT NULL,         -- 객실 ID (settings rooms 배열의 id 값)
+    DATE_FROM   DATE            NOT NULL,         -- 적용 시작일 (해당 일 포함)
+    DATE_TO     DATE            NOT NULL,         -- 적용 종료일 (해당 일 포함)
+    PRICE       NUMBER(12)      NOT NULL,         -- 1박 요금 (원, 0 이상)
+    LABEL       VARCHAR2(200),                    -- 용도 메모 (예: 추석 연휴, 광복절 특별)
+    CREATED_AT  TIMESTAMP       DEFAULT SYSTIMESTAMP NOT NULL,
+
+    CONSTRAINT PK_ROOM_PRICES       PRIMARY KEY (PRICE_ID),
+    CONSTRAINT CHK_PRICE_DATE_RANGE CHECK (DATE_TO >= DATE_FROM),
+    CONSTRAINT CHK_PRICE_POSITIVE   CHECK (PRICE >= 0)
+);
+
+-- 객실+날짜 범위로 조회가 빈번하므로 복합 인덱스 추가
+CREATE INDEX IDX_ROOM_PRICES_ROOM ON KOSHA_ROOM_PRICES (ROOM_ID, DATE_FROM, DATE_TO);
+
+COMMENT ON TABLE  KOSHA_ROOM_PRICES           IS '날짜별 객실 특별 요금 — 시즌 기본 요금을 날짜·기간 단위로 오버라이드';
+COMMENT ON COLUMN KOSHA_ROOM_PRICES.PRICE_ID  IS 'UUID 형태의 규칙 고유 ID';
+COMMENT ON COLUMN KOSHA_ROOM_PRICES.ROOM_ID   IS 'settings.rooms[].id 와 일치 (예: r1, r2)';
+COMMENT ON COLUMN KOSHA_ROOM_PRICES.DATE_FROM IS '적용 시작일 (포함, YYYY-MM-DD 형식으로 저장)';
+COMMENT ON COLUMN KOSHA_ROOM_PRICES.DATE_TO   IS '적용 종료일 (포함, YYYY-MM-DD 형식으로 저장)';
+COMMENT ON COLUMN KOSHA_ROOM_PRICES.PRICE     IS '1박 기준 요금 (원)';
+COMMENT ON COLUMN KOSHA_ROOM_PRICES.LABEL     IS '관리자 메모 — 화면에 표시되지 않음 (내부용)';

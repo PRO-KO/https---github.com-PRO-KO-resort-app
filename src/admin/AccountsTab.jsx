@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { YEAR } from "../constants";
-import { hashPwd, generateSalt, validate, sanitize } from "../security";
+import { hashPwd, generateSalt, validate, sanitize, normalizeEmpId } from "../security";
 import { Btn, Field, Alert } from "../components/UI";
 
 export default function AccountsTab({ employees, apps, saveEmp }) {
@@ -32,15 +32,19 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
   // ── 계정 추가 ──────────────────────────────────────────────────────────────
   const addEmp = async () => {
     if (loading) return
-    const id    = sanitize.empId(f.empId)
-    const org   = sanitize.text(f.organization)
-    const dept  = sanitize.text(f.department)
+    const id    = normalizeEmpId(f.empId)
+    const org   = sanitize.text(f.org)
+    const dept  = sanitize.text(f.dept)
     const phone = sanitize.phone(f.phone)
 
     if (!id || !validate.empId(id))  { setErr('사번은 영문/숫자/하이픈/언더스코어 1~30자이어야 합니다.'); return }
     if (!validate.password(f.pw))    { setErr('비밀번호는 4~128자이어야 합니다.'); return }
-    if (employees[id])               { setErr('이미 존재하는 사번입니다.'); return }
+    if (employees[id] || Object.keys(employees).some(empId => empId.toUpperCase() === id)) {
+      setErr('이미 존재하는 사번입니다.')
+      return
+    }
 
+    setErr('')
     setLoading(true)
     try {
       const salt = generateSalt()
@@ -57,6 +61,9 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
       setErr('')
       flash(`${id} 계정 추가 완료.`)
       setShowAdd(false)
+    } catch (e) {
+      console.error('[AccountsTab addEmp]', e)
+      setErr(e?.message || '계정 추가 중 오류가 발생했습니다. 브라우저/보안 설정을 확인해주세요.')
     } finally {
       setLoading(false)
     }
@@ -67,6 +74,7 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
   // ── 비밀번호 초기화 ────────────────────────────────────────────────────────
   const resetPassword = async () => {
     if (!validate.password(resetPw)) { setErr('새 비밀번호는 4~128자이어야 합니다.'); return }
+    setErr('')
     setLoading(true)
     try {
       const salt = generateSalt()
@@ -74,6 +82,9 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
       await saveEmp({ ...employees, [resetTarget.empId]: { ...employees[resetTarget.empId], pwHash: hash, pwSalt: salt } })
       flash(`${resetTarget.empId} 비밀번호 변경 완료.`)
       setResetTarget(null); setResetPw(''); setErr('')
+    } catch (e) {
+      console.error('[AccountsTab resetPassword]', e)
+      setErr(e?.message || '비밀번호 변경 중 오류가 발생했습니다. 브라우저/보안 설정을 확인해주세요.')
     } finally {
       setLoading(false)
     }

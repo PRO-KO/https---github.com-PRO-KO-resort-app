@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { DEFAULT_SETTINGS, ADMIN_PW } from './constants'
+import { DEFAULT_SETTINGS, ADMIN_PW, ADMIN_PW_CONFIGURED } from './constants'
 import { lsGet, lsSet, KEYS } from './storage'
-import { touchSession, isSessionValid, clearSession, SESSION_MS } from './security'
+import {
+  touchSession, isSessionValid, clearSession, SESSION_MS,
+  secureTextEqual, checkLock, recordFail, clearLock, getRuntimeCompatibility,
+} from './security'
 import { KoshaLogo, Btn } from './components/UI'
 
 import LoginPage    from './pages/LoginPage'
+import RegisterPage from './pages/RegisterPage'
 import HomePage     from './pages/HomePage'
 import ApplyPage    from './pages/ApplyPage'
 import StatusPage   from './pages/StatusPage'
@@ -24,10 +28,12 @@ export default function App() {
   const [showNavAdminModal,  setShowNavAdminModal]  = useState(false)
   const [navAdminPw,         setNavAdminPw]         = useState('')
   const [navAdminErr,        setNavAdminErr]         = useState('')
+  const [compatIssues,       setCompatIssues]        = useState([])
   const navLogoClicks = useRef(0)
   const navLogoTimer  = useRef(null)
 
   useEffect(() => {
+    setCompatIssues(getRuntimeCompatibility().issues)
     const emp = lsGet(KEYS.employees, {})
     const a   = lsGet(KEYS.apps,      [])
     const raw = lsGet(KEYS.settings,  DEFAULT_SETTINGS)
@@ -37,7 +43,15 @@ export default function App() {
     if (!raw.fundBudget)         raw.fundBudget         = DEFAULT_SETTINGS.fundBudget
     if (!raw.peakDayQuotas)      raw.peakDayQuotas      = DEFAULT_SETTINGS.peakDayQuotas
     if (!raw.peakHolidays)       raw.peakHolidays       = DEFAULT_SETTINGS.peakHolidays
+    if (!raw.datePrices)         raw.datePrices         = DEFAULT_SETTINGS.datePrices
     setEmployees(emp); setApps(a); setSettings(raw); setFundUsed(fu)
+
+    const onStorage = e => {
+      if (e.key === KEYS.employees) setEmployees(lsGet(KEYS.employees, {}))
+      if (e.key === KEYS.apps)      setApps(lsGet(KEYS.apps, []))
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
   }, [])
 
   // ── 세션 타임아웃 관리 ─────────────────────────────────────────────────────
@@ -56,7 +70,8 @@ export default function App() {
         handleLogout()
       } else {
         // 세션 만료 5분 전 경고
-        const remaining = sessionStorage.getItem('_sess_ts')
+        let remaining = null
+        try { remaining = sessionStorage.getItem('_sess_ts') } catch {}
         if (remaining && (Date.now() - parseInt(remaining)) > SESSION_MS - 5 * 60 * 1000) {
           setSessionWarn(true)
         }
@@ -75,6 +90,7 @@ export default function App() {
   const saveApps     = a => { setApps(a);      lsSet(KEYS.apps,      a) }
   const saveSettings = s => { setSettings(s);  lsSet(KEYS.settings,  s) }
   const saveFundUsed = v => { setFundUsed(v);  lsSet(KEYS.fundUsed,  v) }
+  const refreshEmp   = () => setEmployees(lsGet(KEYS.employees, {}))
 
   const loginUser  = user => { setCurrentUser(user); setAdminAuth(false); setPage('home'); touchSession() }
   const loginAdmin = ()   => { setCurrentUser(null); setAdminAuth(true);  setPage('admin'); touchSession() }
@@ -90,10 +106,21 @@ export default function App() {
   }
 
   const confirmNavAdmin = () => {
-    if (navAdminPw === ADMIN_PW) {
+    if (!ADMIN_PW_CONFIGURED) {
+      setNavAdminErr('관리자 비밀번호가 설정되지 않았습니다. .env에 VITE_ADMIN_PW를 8자 이상으로 설정해주세요.')
+      return
+    }
+    const lock = checkLock('admin')
+    if (lock.locked) {
+      setNavAdminErr(`관리자 로그인 시도 횟수 초과. ${lock.remainMin}분 후 다시 시도해주세요.`)
+      return
+    }
+    if (secureTextEqual(navAdminPw, ADMIN_PW)) {
+      clearLock('admin')
       setShowNavAdminModal(false); setNavAdminPw(''); setNavAdminErr('')
       loginAdmin()
     } else {
+      recordFail('admin')
       setNavAdminErr('비밀번호가 올바르지 않습니다.')
     }
   }
@@ -111,7 +138,8 @@ export default function App() {
 
   const sharedProps = { employees, saveEmp, setPage, loginUser, loginAdmin }
 
-  if (page === 'login') return <LoginPage {...sharedProps} />
+  if (page === 'login')    return <LoginPage    {...sharedProps} />
+  if (page === 'register') return <RegisterPage {...sharedProps} />
   if (!currentUser && !adminAuth) return <LoginPage {...sharedProps} />
 
   const navItems = adminAuth
@@ -120,7 +148,7 @@ export default function App() {
 
   const ctx = {
     currentUser, employees, apps, settings, fundUsed,
-    saveEmp, saveApps, saveSettings, saveFundUsed,
+    saveEmp, saveApps, saveSettings, saveFundUsed, refreshEmp,
     setPage, adminAuth, setAdminAuth,
   }
 
@@ -136,6 +164,11 @@ export default function App() {
             style={{ background: 'none', border: '0.5px solid var(--color-text-warning)', borderRadius: 4, padding: '3px 10px', fontSize: 12, color: 'var(--color-text-warning)', cursor: 'pointer' }}>
             연장
           </button>
+        </div>
+      )}
+      {compatIssues.length > 0 && (
+        <div style={{ background: 'var(--color-background-warning)', borderBottom: '0.5px solid var(--color-border-warning)', padding: '8px 20px', fontSize: 12, color: 'var(--color-text-warning)', lineHeight: 1.5 }}>
+          {compatIssues[0]}
         </div>
       )}
 

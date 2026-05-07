@@ -745,6 +745,27 @@ return res.status(201).json({ message: '가입 신청이 완료되었습니다.'
 }
 ```
 
+**PUT /api/apps — 추첨 결과 내부 메일 알림**:
+
+추첨 결과가 저장되면 당첨(`selected`), 별도배정(`manual`), 낙첨(`rejected`) 여부와 무관하게 결과가 확정된 모든 신청자에게 내부 메일을 발송합니다.
+
+```js
+// server/index.js — PUT /api/apps 처리 후
+const notifications = notificationTargets.map(app =>
+    mailLotteryResult({
+        empId:    app.empId,
+        empEmail: internalEmailFor(app.empId),
+        month:    app.month,
+        roomType: app.roomType,
+        nights:   app.nights,
+        status:   app.status,
+    })
+)
+await Promise.allSettled(notifications)
+```
+
+기본 내부 메일 주소는 `{사번}@kosha-kms1.kosha.or.kr` 형식입니다. 다른 내부 도메인을 쓰는 기관은 `.env`에 `MAIL_INTERNAL_DOMAIN=내부메일도메인`을 설정하세요.
+
 ---
 
 ## 13. 배포 후 점검 체크리스트

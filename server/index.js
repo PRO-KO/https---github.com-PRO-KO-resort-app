@@ -23,8 +23,8 @@
  *   DB_NAME       = tibero            (Tibero DB명)
  *   JWT_SECRET    = 최소32자이상의랜덤문자열  ← 반드시 변경!
  *   PORT          = 4000              (API 서버 포트)
- *   ADMIN_PW      = resort2026        (관리자 비밀번호)
- *   VITE_ADMIN_PW = resort2026        (프론트엔드 환경변수와 일치시킬 것)
+ *   ADMIN_PW      = 관리자 비밀번호
+ *   VITE_ADMIN_PW = 관리자 비밀번호 (프론트엔드 localStorage 모드에서만 사용)
  */
 
 import 'dotenv/config'
@@ -35,11 +35,21 @@ import jwt            from 'jsonwebtoken'
 import { randomBytes, pbkdf2 as _pbkdf2, timingSafeEqual } from 'crypto'
 import { promisify }  from 'util'
 import { initDB, execute, transaction } from './db.js'
+import { mailLotteryResult, internalEmailFor, verifyMailer } from './mailer.js'
 
 const app       = express()
 const PORT      = process.env.PORT       || 4000
 const JWT_SECRET= process.env.JWT_SECRET || 'CHANGE_ME_TO_RANDOM_64_CHARS'
-const ADMIN_PW  = process.env.ADMIN_PW   || 'resort2026'
+const ADMIN_PW  = process.env.ADMIN_PW   || ''
+
+if (process.env.NODE_ENV === 'production') {
+    if (!process.env.JWT_SECRET || JWT_SECRET === 'CHANGE_ME_TO_RANDOM_64_CHARS' || JWT_SECRET.length < 32) {
+        throw new Error('운영 환경에서는 32자 이상의 JWT_SECRET 환경변수를 설정해야 합니다.')
+    }
+    if (!ADMIN_PW || ADMIN_PW.length < 8) {
+        throw new Error('운영 환경에서는 8자 이상의 ADMIN_PW 환경변수를 설정해야 합니다.')
+    }
+}
 
 // JWT 만료 시간 = 30분 (기존 세션 정책과 동일)
 const JWT_EXPIRES = '30m'
@@ -116,6 +126,39 @@ const legacyHash = s => {
     return h.toString(16)
 }
 
+const secureTextEqual = (a = '', b = '') => {
+    const left = Buffer.from(String(a))
+    const right = Buffer.from(String(b))
+    if (left.length !== right.length) return false
+    return timingSafeEqual(left, right)
+}
+
+const MAX_LOGIN_ATTEMPTS = 5
+const LOCKOUT_MS = 15 * 60 * 1000
+const loginLocks = new Map()
+
+const lockKey = (scope, id, ip) => `${scope}:${String(id || '').toUpperCase()}:${ip || ''}`
+const getLock = key => {
+    const lock = loginLocks.get(key)
+    if (!lock) return { locked: false }
+    if (Date.now() > lock.until) {
+        loginLocks.delete(key)
+        return { locked: false }
+    }
+    return { locked: true, remainMin: Math.ceil((lock.until - Date.now()) / 60000) }
+}
+const recordLoginFail = key => {
+    const cur = loginLocks.get(key) || { attempts: 0, until: 0 }
+    const attempts = cur.attempts + 1
+    const next = {
+        attempts,
+        until: attempts >= MAX_LOGIN_ATTEMPTS ? Date.now() + LOCKOUT_MS : cur.until,
+    }
+    loginLocks.set(key, next)
+    return { locked: attempts >= MAX_LOGIN_ATTEMPTS, remain: Math.max(0, MAX_LOGIN_ATTEMPTS - attempts) }
+}
+const clearLoginFail = key => loginLocks.delete(key)
+
 
 // ──────────────────────────────────────────────────────────────────────────────
 // JWT 인증 미들웨어
@@ -160,9 +203,7 @@ const adminOnly = (req, res, next) => {
  * 실패: 401 (사번/비밀번호 불일치), 403 (미승인 계정)
  *
  * 브루트포스 방어:
- *   현재는 DB 조회 후 검증 실패 시 단순 에러 반환입니다.
- *   운영 환경에서는 Redis 등 캐시에 실패 횟수를 기록하고
- *   5회 초과 시 15분 잠금 처리를 추가하세요.
+ *   사번+IP 기준 5회 실패 시 15분 잠금
  */
 app.post('/api/auth/login', async (req, res) => {
     const { empId, password } = req.body
@@ -170,18 +211,26 @@ app.post('/api/auth/login', async (req, res) => {
         return res.status(400).json({ message: '사번과 비밀번호를 입력해주세요.' })
     }
 
+    const id = empId.trim().toUpperCase()
+    const lk = lockKey('user', id, req.ip)
+    const lock = getLock(lk)
+    if (lock.locked) {
+        return res.status(429).json({ message: `로그인 시도 횟수 초과. ${lock.remainMin}분 후 다시 시도해주세요.` })
+    }
+
     try {
         const { rows } = await execute(
             `SELECT EMP_ID, PW_HASH, PW_SALT, STATUS
                FROM KOSHA_EMPLOYEES
               WHERE EMP_ID = :1`,
-            [empId.trim().toUpperCase()]
+            [id]
         )
 
         const emp = rows[0]
 
         // 존재하지 않거나 거절된 계정 — 동일한 메시지로 사용자 열거 공격 방지
         if (!emp || emp.STATUS === 'rejected') {
+            recordLoginFail(lk)
             return res.status(401).json({ message: '사번 또는 비밀번호가 올바르지 않습니다.' })
         }
 
@@ -191,8 +240,11 @@ app.post('/api/auth/login', async (req, res) => {
 
         const ok = await verifyPwd(password, emp.PW_HASH, emp.PW_SALT)
         if (!ok) {
+            recordLoginFail(lk)
             return res.status(401).json({ message: '사번 또는 비밀번호가 올바르지 않습니다.' })
         }
+
+        clearLoginFail(lk)
 
         // JWT 발급 (30분 만료)
         const token = jwt.sign(
@@ -216,9 +268,16 @@ app.post('/api/auth/login', async (req, res) => {
  */
 app.post('/api/auth/admin-login', (req, res) => {
     const { password } = req.body
-    if (password !== ADMIN_PW) {
+    const lk = lockKey('admin', 'admin', req.ip)
+    const lock = getLock(lk)
+    if (lock.locked) {
+        return res.status(429).json({ message: `관리자 로그인 시도 횟수 초과. ${lock.remainMin}분 후 다시 시도해주세요.` })
+    }
+    if (!ADMIN_PW || !secureTextEqual(password, ADMIN_PW)) {
+        recordLoginFail(lk)
         return res.status(401).json({ message: '관리자 비밀번호가 올바르지 않습니다.' })
     }
+    clearLoginFail(lk)
     const token = jwt.sign(
         { isAdmin: true },
         JWT_SECRET,
@@ -249,14 +308,22 @@ app.post('/api/auth/refresh', auth, (req, res) => {
  * 반환 형태: { [empId]: { empId, status, organization, department, phone, createdAt, approvedAt } }
  * (비밀번호 해시/솔트는 절대 포함하지 않습니다)
  */
-app.get('/api/employees', auth, adminOnly, async (_req, res) => {
+app.get('/api/employees', auth, adminOnly, async (req, res) => {
+    const { status } = req.query
+    const ALLOWED = ['pending', 'approved', 'rejected']
+    if (status && !ALLOWED.includes(status)) {
+        return res.status(400).json({ message: '잘못된 status 값입니다.' })
+    }
     try {
         const { rows } = await execute(
             `SELECT EMP_ID, STATUS, ORGANIZATION, DEPARTMENT, PHONE,
                     TO_CHAR(CREATED_AT,  'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS CREATED_AT,
                     TO_CHAR(APPROVED_AT, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS APPROVED_AT
                FROM KOSHA_EMPLOYEES
-              ORDER BY EMP_ID`
+              ${status ? 'WHERE STATUS = :1' : ''}
+              ORDER BY CASE STATUS WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,
+                       CREATED_AT DESC`,
+            status ? [status] : []
         )
 
         // localStorage 구조({ [empId]: record })와 동일한 형태로 변환
@@ -480,6 +547,8 @@ app.get('/api/apps', auth, async (req, res) => {
     }
 })
 
+const MAX_NIGHTS = 2  // 1회 신청당 최대 숙박 일수 (프론트엔드 constants.js와 동일하게 유지)
+
 /**
  * POST /api/apps
  * 예약 신청 (일반 직원)
@@ -487,6 +556,23 @@ app.get('/api/apps', auth, async (req, res) => {
  */
 app.post('/api/apps', auth, async (req, res) => {
     const { month, roomType, nights, total, subsidy } = req.body
+
+    // 입력 검증
+    const parsedMonth  = parseInt(month)
+    const parsedNights = parseInt(nights)
+    if (!parsedMonth || parsedMonth < 1 || parsedMonth > 12) {
+        return res.status(400).json({ message: '올바른 신청 월을 입력해주세요.' })
+    }
+    if (!parsedNights || parsedNights < 1) {
+        return res.status(400).json({ message: '숙박 일수는 1박 이상이어야 합니다.' })
+    }
+    if (parsedNights > MAX_NIGHTS) {
+        return res.status(400).json({ message: `최대 ${MAX_NIGHTS}박까지만 신청 가능합니다.` })
+    }
+    if (!roomType) {
+        return res.status(400).json({ message: '객실 타입을 선택해주세요.' })
+    }
+
     const empId = req.user.empId
     const year  = new Date().getFullYear()
     const appId = crypto.randomUUID()  // Node.js 14.17+ 내장
@@ -518,6 +604,18 @@ app.put('/api/apps', auth, adminOnly, async (req, res) => {
     if (!Array.isArray(apps)) return res.status(400).json({ message: '잘못된 요청 형식' })
 
     try {
+        const appIds = apps.map(app => app.id).filter(Boolean)
+        const previousStatus = new Map()
+        if (appIds.length > 0) {
+            for (const app of apps) {
+                const { rows } = await execute(
+                    `SELECT STATUS FROM KOSHA_APPS WHERE APP_ID = :1`,
+                    [app.id]
+                )
+                if (rows[0]) previousStatus.set(app.id, rows[0].STATUS)
+            }
+        }
+
         await transaction(async (conn) => {
             for (const app of apps) {
                 // Oracle: conn.execute, Tibero: 별도 처리 필요
@@ -528,7 +626,35 @@ app.put('/api/apps', auth, adminOnly, async (req, res) => {
                 )
             }
         })
-        return res.json({ message: '일괄 업데이트 완료' })
+
+        const resultStatuses = new Set(['selected', 'manual', 'rejected'])
+        const resultChangedMonths = new Set(
+            apps
+                .filter(app => resultStatuses.has(app.status) && previousStatus.get(app.id) !== app.status)
+                .map(app => `${app.year}:${app.month}`)
+        )
+        const notificationTargets = apps.filter(app =>
+            resultStatuses.has(app.status) && resultChangedMonths.has(`${app.year}:${app.month}`)
+        )
+
+        if (notificationTargets.length > 0) {
+            const notifications = notificationTargets.map(app =>
+                mailLotteryResult({
+                    empId:    app.empId,
+                    empEmail: internalEmailFor(app.empId),
+                    month:    app.month,
+                    roomType: app.roomType,
+                    nights:   app.nights,
+                    status:   app.status,
+                })
+            )
+            await Promise.allSettled(notifications)
+        }
+
+        return res.json({
+            message: '일괄 업데이트 완료',
+            mailNotified: notificationTargets.length,
+        })
 
     } catch (err) {
         console.error('[PUT /apps]', err)
@@ -551,6 +677,30 @@ app.put('/api/apps/:id', auth, adminOnly, async (req, res) => {
         return res.json({ message: '상태 변경 완료' })
     } catch (err) {
         console.error('[PUT /apps/:id]', err)
+        return res.status(500).json({ message: '서버 오류' })
+    }
+})
+
+/**
+ * PATCH /api/apps/:id/cancel
+ * 신청 취소 — 일반 사용자: 본인의 pending 상태만 취소 가능 / 관리자: 모든 상태 취소 가능
+ */
+app.patch('/api/apps/:id/cancel', auth, async (req, res) => {
+    const empId   = req.user.empId
+    const isAdmin = req.user.isAdmin
+    const { id }  = req.params
+    try {
+        const sql = isAdmin
+            ? `UPDATE KOSHA_APPS SET STATUS = 'cancelled' WHERE APP_ID = :1`
+            : `UPDATE KOSHA_APPS SET STATUS = 'cancelled' WHERE APP_ID = :1 AND EMP_ID = :2 AND STATUS = 'pending'`
+        const binds = isAdmin ? [id] : [id, empId]
+        const { rowsAffected } = await execute(sql, binds)
+        if (!isAdmin && rowsAffected === 0) {
+            return res.status(404).json({ message: '취소할 수 있는 신청이 없습니다. 이미 추첨이 진행되었거나 본인 신청이 아닙니다.' })
+        }
+        return res.json({ message: '신청이 취소되었습니다.' })
+    } catch (err) {
+        console.error('[PATCH /apps/:id/cancel]', err)
         return res.status(500).json({ message: '서버 오류' })
     }
 })
@@ -630,6 +780,101 @@ app.put('/api/settings', auth, adminOnly, async (req, res) => {
     }
 })
 
+// ── 설정 부분 업데이트 헬퍼 ──────────────────────────────────────────────────
+/** KOSHA_SETTINGS에서 settings JSON을 읽어 파싱 */
+const loadSettings = async () => {
+    const { rows } = await execute(
+        `SELECT SETTING_VAL FROM KOSHA_SETTINGS WHERE SETTING_KEY = 'settings'`
+    )
+    if (!rows.length) throw new Error('설정 없음')
+    const raw = typeof rows[0].SETTING_VAL === 'string'
+        ? rows[0].SETTING_VAL
+        : await rows[0].SETTING_VAL.getData()
+    return JSON.parse(raw)
+}
+/** 변경된 settings 객체를 DB에 저장 */
+const saveSettingsToDB = async s => {
+    await execute(
+        `UPDATE KOSHA_SETTINGS SET SETTING_VAL = :1, UPDATED_AT = SYSTIMESTAMP WHERE SETTING_KEY = 'settings'`,
+        [JSON.stringify(s)]
+    )
+}
+
+/**
+ * PATCH /api/settings/periods
+ * 월별 신청 기간 + 선발 인원 일괄 업데이트 (관리자 전용)
+ * Body: {
+ *   periods: { [month]: { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' } },
+ *   quotas:  { [month]: number }
+ * }
+ */
+app.patch('/api/settings/periods', auth, adminOnly, async (req, res) => {
+    try {
+        const { periods, quotas } = req.body
+        if (!periods && !quotas) return res.status(400).json({ message: 'periods 또는 quotas 필요' })
+        const s = await loadSettings()
+        if (periods) s.applicationPeriods = { ...s.applicationPeriods, ...periods }
+        if (quotas)  s.quotas             = { ...s.quotas, ...quotas }
+        await saveSettingsToDB(s)
+        return res.json({ message: '신청 기간 저장 완료' })
+    } catch (err) {
+        console.error('[PATCH /settings/periods]', err)
+        return res.status(500).json({ message: '서버 오류' })
+    }
+})
+
+/**
+ * PATCH /api/settings/holidays
+ * 공휴일 일괄 추가·삭제 (관리자 전용)
+ * Body: {
+ *   add:    [{ id, date: 'YYYY-MM-DD', name }],
+ *   remove: ['YYYY-MM-DD', ...]
+ * }
+ */
+app.patch('/api/settings/holidays', auth, adminOnly, async (req, res) => {
+    try {
+        const { add = [], remove = [] } = req.body
+        if (!Array.isArray(add) || !Array.isArray(remove))
+            return res.status(400).json({ message: 'add·remove 배열 필요' })
+        const s = await loadSettings()
+        let hols = Array.isArray(s.holidays) ? [...s.holidays] : []
+        // 삭제
+        hols = hols.filter(h => !remove.includes(h.date))
+        // 추가 (중복 방지)
+        add.forEach(h => { if (!hols.some(x => x.date === h.date)) hols.push(h) })
+        s.holidays = hols
+        await saveSettingsToDB(s)
+        return res.json({ message: '공휴일 저장 완료', count: hols.length })
+    } catch (err) {
+        console.error('[PATCH /settings/holidays]', err)
+        return res.status(500).json({ message: '서버 오류' })
+    }
+})
+
+/**
+ * PATCH /api/settings/peak-quotas
+ * 성수기 일별 체크인 제한 인원 일괄 업데이트 (관리자 전용)
+ * Body: {
+ *   month:  7 | 8,
+ *   quotas: { [day]: number }
+ * }
+ */
+app.patch('/api/settings/peak-quotas', auth, adminOnly, async (req, res) => {
+    try {
+        const { month, quotas: dayQuotas } = req.body
+        if (![7, 8].includes(Number(month)) || !dayQuotas)
+            return res.status(400).json({ message: 'month(7|8)과 quotas 필요' })
+        const s = await loadSettings()
+        s.peakDayQuotas = s.peakDayQuotas ?? {}
+        s.peakDayQuotas[month] = { ...(s.peakDayQuotas[month] ?? {}), ...dayQuotas }
+        await saveSettingsToDB(s)
+        return res.json({ message: `${month}월 성수기 제한 저장 완료` })
+    } catch (err) {
+        console.error('[PATCH /settings/peak-quotas]', err)
+        return res.status(500).json({ message: '서버 오류' })
+    }
+})
+
 /**
  * GET /api/fund
  * 발전기금 사용액 반환
@@ -669,6 +914,213 @@ app.put('/api/fund', auth, adminOnly, async (req, res) => {
 
 
 // ──────────────────────────────────────────────────────────────────────────────
+// 라우터 — 날짜별 객실 특별 요금 (Room Date Prices)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/room-prices
+ * 전체 날짜별 특별 요금 규칙 반환 (인증 필요)
+ * 반환 형태: [{ id, roomId, from, to, price, label }]
+ */
+app.get('/api/room-prices', auth, async (_req, res) => {
+    try {
+        const { rows } = await execute(
+            `SELECT PRICE_ID, ROOM_ID,
+                    TO_CHAR(DATE_FROM, 'YYYY-MM-DD') AS DATE_FROM,
+                    TO_CHAR(DATE_TO,   'YYYY-MM-DD') AS DATE_TO,
+                    PRICE, LABEL
+               FROM KOSHA_ROOM_PRICES
+              ORDER BY ROOM_ID, DATE_FROM`
+        )
+        const result = rows.map(r => ({
+            id:     r.PRICE_ID,
+            roomId: r.ROOM_ID,
+            from:   r.DATE_FROM,
+            to:     r.DATE_TO,
+            price:  r.PRICE,
+            label:  r.LABEL ?? '',
+        }))
+        return res.json(result)
+    } catch (err) {
+        console.error('[GET /room-prices]', err)
+        return res.status(500).json({ message: '서버 오류' })
+    }
+})
+
+/**
+ * POST /api/room-prices
+ * 날짜별 특별 요금 규칙 생성 (관리자 전용)
+ * Body: { roomId, from, to, price, label? }
+ */
+app.post('/api/room-prices', auth, adminOnly, async (req, res) => {
+    const { roomId, from, to, price, label } = req.body
+    if (!roomId || !from || !to || price == null) {
+        return res.status(400).json({ message: 'roomId, from, to, price 는 필수 항목입니다.' })
+    }
+    if (new Date(to) < new Date(from)) {
+        return res.status(400).json({ message: '종료일은 시작일보다 같거나 이후여야 합니다.' })
+    }
+    if (Number(price) < 0) {
+        return res.status(400).json({ message: '요금은 0 이상이어야 합니다.' })
+    }
+
+    const id = crypto.randomUUID()
+    try {
+        await execute(
+            `INSERT INTO KOSHA_ROOM_PRICES (PRICE_ID, ROOM_ID, DATE_FROM, DATE_TO, PRICE, LABEL, CREATED_AT)
+             VALUES (:1, :2, TO_DATE(:3,'YYYY-MM-DD'), TO_DATE(:4,'YYYY-MM-DD'), :5, :6, SYSTIMESTAMP)`,
+            [id, roomId, from, to, Number(price), label || null]
+        )
+        return res.status(201).json({ id, message: '특별 요금 생성 완료' })
+    } catch (err) {
+        console.error('[POST /room-prices]', err)
+        return res.status(500).json({ message: '서버 오류' })
+    }
+})
+
+/**
+ * PUT /api/room-prices/:id
+ * 날짜별 특별 요금 규칙 수정 (관리자 전용)
+ * Body: { roomId?, from?, to?, price?, label? }
+ */
+app.put('/api/room-prices/:id', auth, adminOnly, async (req, res) => {
+    const { roomId, from, to, price, label } = req.body
+    try {
+        await execute(
+            `UPDATE KOSHA_ROOM_PRICES
+                SET ROOM_ID   = NVL(:1, ROOM_ID),
+                    DATE_FROM = NVL(TO_DATE(:2,'YYYY-MM-DD'), DATE_FROM),
+                    DATE_TO   = NVL(TO_DATE(:3,'YYYY-MM-DD'), DATE_TO),
+                    PRICE     = NVL(:4, PRICE),
+                    LABEL     = :5
+              WHERE PRICE_ID = :6`,
+            [roomId || null, from || null, to || null, price != null ? Number(price) : null, label ?? null, req.params.id]
+        )
+        return res.json({ message: '특별 요금 수정 완료' })
+    } catch (err) {
+        console.error('[PUT /room-prices/:id]', err)
+        return res.status(500).json({ message: '서버 오류' })
+    }
+})
+
+/**
+ * DELETE /api/room-prices/:id
+ * 날짜별 특별 요금 규칙 삭제 (관리자 전용)
+ */
+app.delete('/api/room-prices/:id', auth, adminOnly, async (req, res) => {
+    try {
+        await execute(
+            `DELETE FROM KOSHA_ROOM_PRICES WHERE PRICE_ID = :1`,
+            [req.params.id]
+        )
+        return res.json({ message: '특별 요금 삭제 완료' })
+    } catch (err) {
+        console.error('[DELETE /room-prices/:id]', err)
+        return res.status(500).json({ message: '서버 오류' })
+    }
+})
+
+/**
+ * POST /api/room-prices/bulk
+ * 선택 기간에 대한 요금 일괄 설정 (관리자 전용)
+ *
+ * Body: {
+ *   rules: [{ roomId, from, to, price, label }],   ← 적용할 규칙 배열
+ *   clearInner: boolean                             ← true이면 기간 내 기존 규칙 삭제 후 삽입
+ * }
+ *
+ * clearInner=true 동작:
+ *   각 rule에 대해 DATE_FROM >= rule.from AND DATE_TO <= rule.to 인 같은 ROOM_ID의
+ *   기존 규칙을 먼저 삭제하고 새 규칙을 삽입합니다.
+ *   기간을 벗어나는 규칙(더 넓은 범위)은 그대로 유지됩니다.
+ */
+app.post('/api/room-prices/bulk', auth, adminOnly, async (req, res) => {
+    const { rules, clearInner } = req.body
+    if (!Array.isArray(rules) || rules.length === 0) {
+        return res.status(400).json({ message: 'rules 배열이 필요합니다.' })
+    }
+
+    // 유효성 검사
+    for (const r of rules) {
+        if (!r.roomId || !r.from || !r.to || r.price == null) {
+            return res.status(400).json({ message: 'roomId, from, to, price 는 각 규칙의 필수 항목입니다.' })
+        }
+        if (new Date(r.to) < new Date(r.from)) {
+            return res.status(400).json({ message: `종료일이 시작일보다 빠릅니다: ${r.from} ~ ${r.to}` })
+        }
+        if (Number(r.price) < 0) {
+            return res.status(400).json({ message: '요금은 0 이상이어야 합니다.' })
+        }
+    }
+
+    try {
+        await transaction(async (conn) => {
+            for (const rule of rules) {
+                const { roomId, from, to, price, label } = rule
+
+                if (clearInner) {
+                    // 선택 기간 내부에 완전히 포함되는 기존 규칙 삭제
+                    await conn.execute(
+                        `DELETE FROM KOSHA_ROOM_PRICES
+                          WHERE ROOM_ID = :1
+                            AND DATE_FROM >= TO_DATE(:2, 'YYYY-MM-DD')
+                            AND DATE_TO   <= TO_DATE(:3, 'YYYY-MM-DD')`,
+                        [roomId, from, to],
+                        { autoCommit: false }
+                    )
+                }
+
+                const id = crypto.randomUUID()
+                await conn.execute(
+                    `INSERT INTO KOSHA_ROOM_PRICES
+                        (PRICE_ID, ROOM_ID, DATE_FROM, DATE_TO, PRICE, LABEL, CREATED_AT)
+                     VALUES (:1, :2, TO_DATE(:3,'YYYY-MM-DD'), TO_DATE(:4,'YYYY-MM-DD'), :5, :6, SYSTIMESTAMP)`,
+                    [id, roomId, from, to, Number(price), label || null],
+                    { autoCommit: false }
+                )
+            }
+        })
+        return res.status(201).json({ count: rules.length, message: `${rules.length}개 규칙 일괄 적용 완료` })
+
+    } catch (err) {
+        console.error('[POST /room-prices/bulk]', err)
+        return res.status(500).json({ message: '서버 오류' })
+    }
+})
+
+/**
+ * DELETE /api/room-prices/bulk
+ * 선택 기간 내 요금 규칙 일괄 삭제 (관리자 전용)
+ *
+ * Body: { roomIds: string[], from: string, to: string }
+ *   → roomIds 내 각 객실에 대해 DATE_FROM >= from AND DATE_TO <= to 인 규칙 삭제
+ */
+app.delete('/api/room-prices/bulk', auth, adminOnly, async (req, res) => {
+    const { roomIds, from, to } = req.body
+    if (!Array.isArray(roomIds) || !from || !to) {
+        return res.status(400).json({ message: 'roomIds, from, to 는 필수 항목입니다.' })
+    }
+
+    try {
+        let totalDeleted = 0
+        for (const roomId of roomIds) {
+            const result = await execute(
+                `DELETE FROM KOSHA_ROOM_PRICES
+                  WHERE ROOM_ID = :1
+                    AND DATE_FROM >= TO_DATE(:2, 'YYYY-MM-DD')
+                    AND DATE_TO   <= TO_DATE(:3, 'YYYY-MM-DD')`,
+                [roomId, from, to]
+            )
+            totalDeleted += result.rowsAffected ?? 0
+        }
+        return res.json({ deleted: totalDeleted, message: `${totalDeleted}개 규칙 삭제 완료` })
+    } catch (err) {
+        console.error('[DELETE /room-prices/bulk]', err)
+        return res.status(500).json({ message: '서버 오류' })
+    }
+})
+
+// ──────────────────────────────────────────────────────────────────────────────
 // DB 초기화 및 서버 시작
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -692,6 +1144,7 @@ async function start() {
     try {
         await initDB()         // DB 연결 풀 초기화
         await initDefaults()   // 초기 데이터 확인
+        await verifyMailer()   // 메일 서버 연결 상태 확인
 
         app.listen(PORT, () => {
             console.log(`[SERVER] API 서버 기동: http://localhost:${PORT}`)

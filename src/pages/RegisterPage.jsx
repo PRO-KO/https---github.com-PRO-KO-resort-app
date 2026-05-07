@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { YEAR } from '../constants'
-import { hashPwd, generateSalt, validate, sanitize } from '../security'
+import { hashPwd, generateSalt, validate, sanitize, normalizeEmpId } from '../security'
 import { Btn, Card, Alert, Field, KoshaLogo } from '../components/UI'
 
 export default function RegisterPage({ employees, saveEmp, setPage }) {
@@ -15,7 +15,7 @@ export default function RegisterPage({ employees, saveEmp, setPage }) {
     if (loading) return
 
     // ── 입력 검증 ─────────────────────────────────────────────────────────────
-    const id = sanitize.empId(f.empId)
+    const id = normalizeEmpId(f.empId)
     const org  = sanitize.text(f.organization)
     const dept = sanitize.text(f.department)
     const phone = sanitize.phone(f.phone)
@@ -32,13 +32,15 @@ export default function RegisterPage({ employees, saveEmp, setPage }) {
     if (!phone)            { setErr('휴대폰번호를 입력해주세요.'); return }
     if (!validate.phone(phone)) { setErr('올바른 전화번호 형식이 아닙니다.'); return }
 
-    if (employees[id]) {
-      const s = employees[id].status
+    const existingId = Object.keys(employees).find(empId => empId.toUpperCase() === id)
+    if (existingId) {
+      const s = employees[existingId].status
       if (s === 'pending')  { setErr('이미 가입 신청 중인 사번입니다. 관리자 승인을 기다려주세요.'); return }
       if (s === 'approved') { setErr('이미 가입된 사번입니다.'); return }
       if (s === 'rejected') { setErr('가입이 거절된 사번입니다. 관리자에게 문의해주세요.'); return }
     }
 
+    setErr('')
     setLoading(true)
     try {
       // PBKDF2-SHA256 해싱
@@ -59,6 +61,9 @@ export default function RegisterPage({ employees, saveEmp, setPage }) {
         },
       })
       setDone(true)
+    } catch (e) {
+      console.error('[RegisterPage submit]', e)
+      setErr(e?.message || '가입 신청 중 오류가 발생했습니다. 브라우저/보안 설정을 확인해주세요.')
     } finally {
       setLoading(false)
     }
@@ -75,7 +80,7 @@ export default function RegisterPage({ employees, saveEmp, setPage }) {
           </p>
         </div>
         <div style={{ background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', padding: '14px 16px', marginBottom: 20 }}>
-          {[['신청 사번', sanitize.empId(f.empId)], ['기관', sanitize.text(f.organization)], ['부서', sanitize.text(f.department)], ['처리 상태', '승인 대기 중']].map(([k, v]) => (
+          {[['신청 사번', normalizeEmpId(f.empId)], ['기관', sanitize.text(f.organization)], ['부서', sanitize.text(f.department)], ['처리 상태', '승인 대기 중']].map(([k, v]) => (
             <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
               <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{k}</span>
               <span style={{ fontSize: 13, fontWeight: k === '처리 상태' ? 500 : 400, color: k === '처리 상태' ? 'var(--color-text-warning)' : 'var(--color-text-primary)' }}>{v}</span>

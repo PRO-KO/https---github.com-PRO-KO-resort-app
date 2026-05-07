@@ -10,7 +10,7 @@
 src/
 ├── constants.js          # 상수, 헬퍼 함수 (시즌, 요금, 이메일 주소 등)
 ├── storage.js            # localStorage 영속성 레이어
-├── emailService.js       # Anthropic API → Gmail MCP 메일 발송
+├── emailService.js       # 수동 메일 발송 화면용 본문/수신자 헬퍼
 ├── App.jsx               # 앱 루트 (라우팅, 전역 상태)
 ├── index.css             # 디자인 토큰 + 전역 스타일
 │
@@ -32,7 +32,7 @@ src/
     ├── FundTab.jsx       # 발전기금 배정액·집행·잔액 실시간 현황
     ├── RoomsTab.jsx      # 객실 정보 설정 (지원율%, 요금, 기간)
     ├── AppListTab.jsx    # 날짜별 신청인 현황 (기관/부서/사번/전화)
-    ├── EmailTab.jsx      # 당첨/낙첨 메일 발송
+    ├── EmailTab.jsx      # 추첨 결과 내부 메일 발송/미리보기
     └── AccountsTab.jsx   # 계정 관리
 ```
 
@@ -51,7 +51,7 @@ npm install
 
 ```bash
 cp .env.example .env
-# .env 파일을 열어 VITE_ANTHROPIC_API_KEY 값을 입력
+# .env 파일을 열어 MAIL_* 내부 SMTP 설정을 입력
 ```
 
 ### 3. 개발 서버 실행
@@ -83,7 +83,7 @@ npm run build
 | **발전기금** | 연간 배정액 수정, 집행액·잔액 실시간 확인, 월별 집행 현황 |
 | **객실 설정** | 객실별 지원율(%), 예약 가능 기간, 시즌별 요금 설정 |
 | **신청인 현황** | 기관·부서·사번·휴대폰·신청일 필터 조회 |
-| **메일 발송** | 당첨 메일(외부 @kosha.or.kr), 낙첨 메일(내부 @kosha-kms1.kosha.or.kr) |
+| **메일 발송** | 추첨 결과와 무관하게 모든 신청자에게 내부 메일 알림 발송 |
 
 ---
 
@@ -115,11 +115,12 @@ npm run build
 ## 메일 발송 구조
 
 ```
-관리자 → EmailTab → emailService.js
-                  → Anthropic API (claude-sonnet-4)
-                  → Gmail MCP Server
-                  → 수신자 이메일
+관리자 추첨 실행 → PUT /api/apps
+                → server/mailer.js
+                → 내부 SMTP 서버
+                → 신청자 내부 메일
 ```
 
-- **당첨 메일**: `{사번}@kosha.or.kr` (외부 메일)
-- **낙첨 메일**: `{사번}@kosha-kms1.kosha.or.kr` (내부 메일)
+- **추첨 결과 메일**: 당첨·별도배정·낙첨과 무관하게 모든 결과 확정 신청자에게 `{사번}@kosha-kms1.kosha.or.kr` 내부 메일로 발송
+- 서버 DB/API 모드에서는 `PUT /api/apps`로 추첨 결과가 저장될 때 상태가 `selected`, `manual`, `rejected`로 변경된 신청자에게 자동 발송됩니다.
+- 내부 메일 도메인이 다르면 `.env`에 `MAIL_INTERNAL_DOMAIN=내부메일도메인`을 설정하세요.

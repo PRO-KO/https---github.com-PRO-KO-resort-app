@@ -13,7 +13,7 @@ const matches = (emp, q) => {
   )
 }
 
-export default function ApprovalTab({ employees, saveEmp }) {
+export default function ApprovalTab({ employees, saveEmp, refreshEmp }) {
   const [rejectTarget, setRejectTarget] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
 
@@ -92,9 +92,16 @@ export default function ApprovalTab({ employees, saveEmp }) {
               </span>
             )}
           </h3>
-          <input value={pendingSearch} onChange={e => setPendingSearch(e.target.value)}
-            placeholder="사번 / 기관 / 부서 / 전화 검색"
-            style={{ fontSize: 13, width: 220 }} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input value={pendingSearch} onChange={e => setPendingSearch(e.target.value)}
+              placeholder="사번 / 기관 / 부서 / 전화 검색"
+              style={{ fontSize: 13, width: 200 }} />
+            {refreshEmp && (
+              <Btn onClick={refreshEmp} style={{ fontSize: 11, padding: '5px 11px', flexShrink: 0 }} title="localStorage에서 최신 데이터 다시 읽기">
+                새로고침
+              </Btn>
+            )}
+          </div>
         </div>
 
         {pendingList.length === 0

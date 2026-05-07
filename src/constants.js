@@ -3,13 +3,18 @@
 /**
  * 관리자 비밀번호: .env 파일의 VITE_ADMIN_PW 환경변수에서 읽음
  * 설정 방법: .env 파일에 VITE_ADMIN_PW=비밀번호 추가
- * 미설정 시 기본값 사용 (운영 배포 시 반드시 환경변수로 설정할 것)
+ * 개발 환경에서만 기본값을 허용합니다.
+ * 운영 빌드에서는 VITE_ADMIN_PW가 없으면 관리자 로그인을 비활성화합니다.
  */
-export const ADMIN_PW = import.meta.env.VITE_ADMIN_PW ?? 'resort2026'
+export const ADMIN_PW = import.meta.env.VITE_ADMIN_PW ?? (import.meta.env.DEV ? 'resort2026' : '')
+export const ADMIN_PW_CONFIGURED = ADMIN_PW.length >= 8
 export const YEAR     = new Date().getFullYear()
 export const SK       = 'kosha-resort'
 
 // ※ simpleHash 제거 — src/security.js 의 hashPwd / verifyPwdCompat 사용
+
+// 1회 신청당 최대 숙박 일수
+export const MAX_NIGHTS = 2
 
 // 성수기 월 (일별 체크인 제한 적용 대상)
 export const PEAK_MONTHS = [7, 8]
@@ -59,9 +64,21 @@ export const DEFAULT_SETTINGS = {
   peakDayQuotas: Object.fromEntries(
     PEAK_MONTHS.map(m => [m, Object.fromEntries([...Array(31)].map((_, i) => [i + 1, DEFAULT_PEAK_DAY_QUOTA]))])
   ),
-  // 성수기 공휴일: { 7: [day, ...], 8: [day, ...] } — 관리자가 연도별로 직접 지정
-  // 광복절(8/15)은 매년 고정이므로 기본값으로 포함
+  // 성수기 공휴일: holidays 배열에서 파생 (backward compat 유지용)
   peakHolidays: { 7: [], 8: [15] },
+  datePrices: [],
+  // 공휴일 목록 — { id, date: 'YYYY-MM-DD', name } 형식
+  // 음력 공휴일(설날·추석·부처님오신날)은 해마다 날짜가 바뀌므로 관리자가 직접 추가
+  holidays: [
+    { id: 'dh_0101', date: `${YEAR}-01-01`, name: '신정' },
+    { id: 'dh_0301', date: `${YEAR}-03-01`, name: '삼일절' },
+    { id: 'dh_0505', date: `${YEAR}-05-05`, name: '어린이날' },
+    { id: 'dh_0606', date: `${YEAR}-06-06`, name: '현충일' },
+    { id: 'dh_0815', date: `${YEAR}-08-15`, name: '광복절' },
+    { id: 'dh_1003', date: `${YEAR}-10-03`, name: '개천절' },
+    { id: 'dh_1009', date: `${YEAR}-10-09`, name: '한글날' },
+    { id: 'dh_1225', date: `${YEAR}-12-25`, name: '크리스마스' },
+  ],
 }
 
 export const getSeason = m =>

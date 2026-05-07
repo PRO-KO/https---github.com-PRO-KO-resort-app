@@ -1,4 +1,4 @@
-import { extEmail, intEmail, won } from './constants'
+import { intEmail, won } from './constants'
 
 // ── 메일 본문 생성 ─────────────────────────────────────────────────────────
 
@@ -40,10 +40,8 @@ ${month}월 직원 휴양소 예약 추첨 결과를 안내드립니다.
 }
 
 // ── 수신자 이메일 주소 ─────────────────────────────────────────────────────
-// 당첨: 외부 메일 (@kosha.or.kr)
-// 낙첨: 내부 메일 (@kosha-kms1.kosha.or.kr)
-export const getRecipient = (empId, type) =>
-  type === 'winner' ? extEmail(empId) : intEmail(empId)
+// 추첨 결과는 당첨/낙첨과 무관하게 내부 메일로 발송합니다.
+export const getRecipient = empId => intEmail(empId)
 
 // ── Anthropic API → Gmail MCP 발송 ────────────────────────────────────────
 // 환경변수 VITE_ANTHROPIC_API_KEY 를 .env 파일에 설정하세요.

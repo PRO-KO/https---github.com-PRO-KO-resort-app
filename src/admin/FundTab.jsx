@@ -9,7 +9,6 @@ export default function FundTab({ settings, apps, fundUsed, saveFundUsed, saveSe
 
   const [editBudget,   setEditBudget]   = useState(false)
   const [budgetVal,    setBudgetVal]    = useState(String(budget))
-  const [addAmt,       setAddAmt]       = useState('')
   const [savedMsg,     setSavedMsg]     = useState('')
 
   // 전체 초기화 확인 상태
@@ -24,15 +23,6 @@ export default function FundTab({ settings, apps, fundUsed, saveFundUsed, saveSe
     await saveSettings({ ...settings, fundBudget: v })
     setEditBudget(false)
     flash(`배정액이 ${won(v)}으로 변경되었습니다.`)
-  }
-
-  const addBudget = async () => {
-    const add = parseInt(addAmt.replace(/,/g, ''))
-    if (!add || add <= 0) return
-    const newBudget = budget + add
-    await saveSettings({ ...settings, fundBudget: newBudget })
-    flash(`${won(add)} 추가 배정 → 총 ${won(newBudget)}`)
-    setAddAmt('')
   }
 
   // 월별 집행 데이터 계산 (status: selected | manual 인 앱만 집계)
@@ -102,27 +92,8 @@ export default function FundTab({ settings, apps, fundUsed, saveFundUsed, saveSe
             }
           </div>
           {!editBudget && (
-            <Btn onClick={() => { setEditBudget(true); setBudgetVal(String(budget)) }} style={{ fontSize: 12, padding: '6px 14px' }}>직접 수정</Btn>
+            <Btn onClick={() => { setEditBudget(true); setBudgetVal(String(budget)) }} style={{ fontSize: 12, padding: '6px 14px' }}>수정</Btn>
           )}
-        </div>
-
-        {/* 추가 배정 */}
-        <div style={{ borderTop: '0.5px solid var(--color-border-tertiary)', paddingTop: 14 }}>
-          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 10 }}>
-            추가 배정 — 기존 금액에 더합니다
-          </p>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input type="number" value={addAmt} onChange={e => setAddAmt(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addBudget()}
-              placeholder="추가 금액 입력 (원)" style={{ width: 200 }} />
-            {[1_000_000, 5_000_000, 10_000_000].map(v => (
-              <button key={v} onClick={() => setAddAmt(String(v))}
-                style={{ background: 'var(--color-background-secondary)', border: '0.5px solid var(--color-border-secondary)', borderRadius: 'var(--border-radius-md)', padding: '6px 12px', fontSize: 12, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
-                +{won(v)}
-              </button>
-            ))}
-            <Btn variant="primary" onClick={addBudget} style={{ fontSize: 12, padding: '6px 14px' }}>추가 배정</Btn>
-          </div>
         </div>
       </Card>
 
