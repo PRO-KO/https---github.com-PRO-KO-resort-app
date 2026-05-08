@@ -9,12 +9,17 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.17.1",
-    "oracledb": "^5.5.0",
-    "dotenv": "^8.6.0",
-    "jsonwebtoken": "^8.5.1",
-    "helmet": "^3.23.3",
     "cors": "^2.8.5",
-    "nodemailer": "^6.4.17"
+    "dotenv": "^8.6.0",
+    "express": "^4.17.1",
+    "helmet": "^3.23.3",
+    "jsonwebtoken": "^8.5.1",
+    "nodemailer": "^6.4.17",
+    "oracledb": "^5.5.0"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.28.6",
+    "@babel/core": "^7.29.0",
+    "@babel/preset-env": "^7.29.5"
   }
 }
