@@ -23,6 +23,15 @@ function getRowsAffected(result) {
     return 0;
 }
 
+function buildOracleConnectString() {
+    var host    = process.env.DB_HOST || 'localhost';
+    var port    = process.env.DB_PORT || '1521';
+    // DB_SERVICE_NAME 우선, 없으면 DB_NAME 사용 (하위 호환)
+    var svcName = process.env.DB_SERVICE_NAME || process.env.DB_NAME || 'ORCL';
+    // 전체 DESCRIPTION 형식 — ORA-12504 (SERVICE_NAME 누락) 방지
+    return '(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=' + host + ')(PORT=' + port + '))(CONNECT_DATA=(SERVICE_NAME=' + svcName + ')))';
+}
+
 async function initOracle() {
     var oracledb = require('oracledb');
     oracleDriver = oracledb;
@@ -31,26 +40,30 @@ async function initOracle() {
         try {
             oracledb.initOracleClient({ libDir: process.env.ORACLE_CLIENT_LIB_DIR });
         } catch (err) {
-            if (String(err.message || '').indexOf('DPI-1047') >= 0) throw err;
-            if (String(err.message || '').indexOf('Oracle Client library has already been initialized') < 0) {
-                throw err;
-            }
+            var msg = String(err.message || '');
+            if (msg.indexOf('DPI-1047') >= 0) throw err;
+            if (msg.indexOf('Oracle Client library has already been initialized') < 0) throw err;
         }
     }
 
     oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
 
+    var connectString = buildOracleConnectString();
+    // DB_PASS (현재 .env 형식) 와 DB_PASSWORD (이전 형식) 모두 지원
+    var password = process.env.DB_PASS || process.env.DB_PASSWORD || '';
+
     oraclePool = await oracledb.createPool({
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
-        connectString: process.env.DB_HOST,
-        poolMin: Number(process.env.DB_POOL_MIN || 1),
-        poolMax: Number(process.env.DB_POOL_MAX || 10),
+        user:          process.env.DB_USER,
+        password:      password,
+        connectString: connectString,
+        poolMin:       Number(process.env.DB_POOL_MIN || 1),
+        poolMax:       Number(process.env.DB_POOL_MAX || 10),
         poolIncrement: 1,
-        poolTimeout: 60
+        poolTimeout:   60
     });
 
-    console.log('[DB] Oracle connection pool initialized');
+    var svcName = process.env.DB_SERVICE_NAME || process.env.DB_NAME || 'ORCL';
+    console.log('[DB] Oracle connection pool initialized: ' + (process.env.DB_HOST || 'localhost') + ':' + (process.env.DB_PORT || '1521') + '/' + svcName);
 }
 
 async function getOracleConn() {

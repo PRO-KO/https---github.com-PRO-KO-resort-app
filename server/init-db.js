@@ -1,15 +1,23 @@
-const oracledb = require('oracledb');
+var oracledb = require('oracledb');
 require('dotenv').config();
 
-// Node.js v10에서 Promise가 가끔 충돌하므로 명시적으로 설정 (필요시)
+// DB_HOST, DB_PORT, DB_SERVICE_NAME 으로 전체 DESCRIPTION 연결 문자열 조합
+// ORA-12504 (SERVICE_NAME 누락 오류) 방지
+function buildConnectString() {
+  var host    = process.env.DB_HOST || 'localhost';
+  var port    = process.env.DB_PORT || '1521';
+  var svcName = process.env.DB_SERVICE_NAME || process.env.DB_NAME || 'ORCL';
+  return '(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=' + host + ')(PORT=' + port + '))(CONNECT_DATA=(SERVICE_NAME=' + svcName + ')))';
+}
+
 async function init() {
-  let conn;
+  var conn;
   try {
     // 1. DB 접속 정보 확인
-    const dbConfig = {
-      user: process.env.DB_USER,
-      password: process.env.DB_PASS,
-      connectString: `${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`
+    var dbConfig = {
+      user:          process.env.DB_USER,
+      password:      process.env.DB_PASS || process.env.DB_PASSWORD || '',
+      connectString: buildConnectString()
     };
 
     conn = await oracledb.getConnection(dbConfig);
