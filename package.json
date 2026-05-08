@@ -1,26 +1,20 @@
 {
-  "name": "kosha-resort-reservation",
+  "name": "resort-app",
   "version": "1.0.0",
+  "description": "Resort Reservation App",
+  "main": "index.js",
   "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "node index.js",
+    "start": "node index.js"
   },
   "dependencies": {
-    "autoprefixer": "^10.5.0",
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "helmet": "^8.1.0",
-    "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^8.0.7",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.4.1"
+    "express": "^4.17.1",
+    "oracledb": "^5.5.0",
+    "dotenv": "^8.6.0",
+    "jsonwebtoken": "^8.5.1",
+    "helmet": "^3.23.3",
+    "cors": "^2.8.5",
+    "nodemailer": "^6.4.17"
   }
 }
