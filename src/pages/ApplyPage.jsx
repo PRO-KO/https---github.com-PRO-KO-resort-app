@@ -66,7 +66,7 @@ export default function ApplyPage({ currentUser, settings, apps, saveApps }) {
     if (room && nights > room.maxNights)  { setErr(`최대 ${room.maxNights}박까지 신청 가능합니다.`); return }
     if (isPeak && peakDayLeft <= 0)       { setErr('선택한 날짜는 이미 신청이 마감되었습니다. 다른 날짜를 선택해주세요.'); return }
 
-    const dup = apps.find(a => a.empId === empId && a.month === sm && a.year === YEAR && a.status !== 'rejected')
+    const dup = apps.find(a => a.empId === empId && a.month === sm && a.year === YEAR && a.status !== 'rejected' && a.status !== 'cancelled')
     if (dup) { setErr('이미 해당 월에 신청 내역이 있습니다.'); return }
 
     const total   = computeTotal()

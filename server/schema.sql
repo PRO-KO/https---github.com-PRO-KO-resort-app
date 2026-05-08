@@ -58,13 +58,15 @@ CREATE TABLE KOSHA_APPS (
     NIGHTS        NUMBER(1)       NOT NULL,         -- 박수 (1~7)
     TOTAL         NUMBER(12)      NOT NULL,         -- 총 숙박료 (원)
     SUBSIDY       NUMBER(12)      NOT NULL,         -- 지원금액 (원)
-    STATUS        VARCHAR2(10)    NOT NULL,         -- 신청 상태
+    STATUS        VARCHAR2(20)    NOT NULL,         -- 신청 상태
+    REMARKS       VARCHAR2(500),                    -- 관리자 비고
+    CANCEL_REASON VARCHAR2(500),                    -- 취소 사유
     CREATED_AT    TIMESTAMP       DEFAULT SYSTIMESTAMP NOT NULL,  -- 신청일시
 
     CONSTRAINT PK_APPS          PRIMARY KEY (APP_ID),
     CONSTRAINT FK_APPS_EMP      FOREIGN KEY (EMP_ID) REFERENCES KOSHA_EMPLOYEES(EMP_ID)
                                 ON DELETE CASCADE,  -- 직원 삭제 시 신청 기록도 함께 삭제
-    CONSTRAINT CHK_APP_STATUS   CHECK (STATUS IN ('pending', 'selected', 'rejected', 'manual')),
+    CONSTRAINT CHK_APP_STATUS   CHECK (STATUS IN ('pending', 'selected', 'rejected', 'manual', 'cancelled', 'cancel_requested')),
     CONSTRAINT CHK_APP_MONTH    CHECK (APP_MONTH BETWEEN 1 AND 12),
     CONSTRAINT CHK_APP_NIGHTS   CHECK (NIGHTS BETWEEN 1 AND 7)
 );
@@ -76,7 +78,7 @@ CREATE INDEX IDX_APPS_STATUS     ON KOSHA_APPS (STATUS);
 
 COMMENT ON TABLE  KOSHA_APPS             IS '휴양소 예약 신청 내역';
 COMMENT ON COLUMN KOSHA_APPS.APP_ID      IS 'UUID 형태의 신청 고유 ID';
-COMMENT ON COLUMN KOSHA_APPS.STATUS      IS 'pending(대기) / selected(당첨) / rejected(낙첨) / manual(별도배정)';
+COMMENT ON COLUMN KOSHA_APPS.STATUS      IS 'pending(대기) / selected(당첨) / rejected(낙첨) / manual(별도배정) / cancelled(취소) / cancel_requested(취소요청)';
 COMMENT ON COLUMN KOSHA_APPS.TOTAL       IS '총 숙박요금 (지원금 포함)';
 COMMENT ON COLUMN KOSHA_APPS.SUBSIDY     IS '발전기금 지원금액';
 
@@ -156,18 +158,6 @@ INSERT INTO KOSHA_SETTINGS (SETTING_KEY, SETTING_VAL) VALUES (
 INSERT INTO KOSHA_SETTINGS (SETTING_KEY, SETTING_VAL) VALUES ('fundUsed', '0');
 
 COMMIT;
-
-
--- ── 5. 운영 계정에 권한 부여 (필요 시) ──────────────────────────────────────
--- 실제 운영 시 전용 계정을 만들어 최소 권한만 부여합니다.
--- DBA 계정으로 아래 명령 실행:
---
--- CREATE USER RESORT_APP IDENTIFIED BY "비밀번호";
--- GRANT CONNECT, RESOURCE TO RESORT_APP;
--- GRANT SELECT, INSERT, UPDATE, DELETE ON KOSHA_EMPLOYEES TO RESORT_APP;
--- GRANT SELECT, INSERT, UPDATE, DELETE ON KOSHA_APPS      TO RESORT_APP;
--- GRANT SELECT, INSERT, UPDATE         ON KOSHA_SETTINGS  TO RESORT_APP;
--- GRANT CREATE SESSION TO RESORT_APP;
 
 
 -- ── 5. 날짜별 객실 특별 요금 ───────────────────────────────────────────────────

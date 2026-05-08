@@ -7,27 +7,33 @@
  * Public API: initDB, execute, transaction.
  */
 
-require('dotenv').config();
+var path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
+
 var DB_TYPE = process.env.DB_TYPE || 'oracle';
 var oraclePool = null;
 var tiberoPool = null;
 var oracleDriver = null;
+
 function normalizeRows(rows) {
   return Array.isArray(rows) ? rows : [];
 }
+
 function getRowsAffected(result) {
   if (!result) return 0;
   if (typeof result.rowsAffected === 'number') return result.rowsAffected;
   if (typeof result.count === 'number') return result.count;
   return 0;
 }
+
 // .env 의 DB_HOST / DB_PORT / DB_SERVICE_NAME 세 값을 조합해
 // Oracle Full Descriptor 연결 문자열을 생성한다.
 // 단축형(host:port/sid)은 리스너 설정에 따라 ORA-12504 를 유발하므로 사용하지 않는다.
 function buildOracleConnectString() {
-  var host    = process.env.DB_HOST         || 'localhost';
-  var port    = process.env.DB_PORT         || '1521';
-  var svcName = process.env.DB_SERVICE_NAME || process.env.DB_NAME || 'ORCL';
+  var host    = (process.env.DB_HOST         || '172.16.4.101').trim();
+  var port    = (process.env.DB_PORT         || '1521').trim();
+  var svcName = (process.env.DB_SERVICE_NAME || process.env.DB_NAME || 'OASHIS').trim();
+  
   return '(DESCRIPTION=' +
            '(ADDRESS=(PROTOCOL=TCP)(HOST=' + host + ')(PORT=' + port + '))' +
            '(CONNECT_DATA=(SERVICE_NAME=' + svcName + ')))';
@@ -63,16 +69,18 @@ async function initOracle() {
     poolTimeout:   60
   });
 
-  var svcName = process.env.DB_SERVICE_NAME || process.env.DB_NAME || 'ORCL';
+  var svcName = process.env.DB_SERVICE_NAME || process.env.DB_NAME || 'OASHIS';
   console.log('[DB] Oracle pool ready  user=' + process.env.DB_USER +
-              '  host=' + (process.env.DB_HOST || 'localhost') +
+              '  host=' + (process.env.DB_HOST || '172.16.4.101') +
               '  port=' + (process.env.DB_PORT || '1521') +
               '  service=' + svcName);
 }
+
 async function getOracleConn() {
   if (!oraclePool) throw new Error('[DB] Oracle pool is not initialized.');
   return oraclePool.getConnection();
 }
+
 async function oraQuery(sql, binds, opts) {
   var conn = await getOracleConn();
   try {
@@ -84,6 +92,7 @@ async function oraQuery(sql, binds, opts) {
     await conn.close();
   }
 }
+
 async function initTibero() {
   var odbc = require('odbc');
   var connectionString = process.env.DB_TIBERO_DSN || 'DRIVER={Tibero6 ODBC Driver};' + 'SERVER=' + process.env.DB_HOST + ';' + 'PORT=' + (process.env.DB_PORT || 8629) + ';' + 'DATABASE=' + (process.env.DB_NAME || 'tibero') + ';' + 'UID=' + process.env.DB_USER + ';' + 'PWD=' + process.env.DB_PASSWORD + ';';
@@ -95,6 +104,7 @@ async function initTibero() {
   });
   console.log('[DB] Tibero ODBC connection pool initialized');
 }
+
 async function tibQuery(sql, params) {
   if (!tiberoPool) throw new Error('[DB] Tibero pool is not initialized.');
   var conn = await tiberoPool.connect();
@@ -104,13 +114,16 @@ async function tibQuery(sql, params) {
     await conn.close();
   }
 }
+
 async function initDB() {
   if (DB_TYPE === 'tibero') return initTibero();
   return initOracle();
 }
+
 function convertOracleBindsToOdbc(sql) {
   return sql.replace(/:[a-zA-Z0-9_]+/g, '?');
 }
+
 async function execute(sql, binds, opts) {
   binds = binds || [];
   if (DB_TYPE === 'tibero') {
@@ -130,6 +143,7 @@ async function execute(sql, binds, opts) {
     rowsAffected: getRowsAffected(oraResult)
   };
 }
+
 async function transaction(fn) {
   if (DB_TYPE === 'tibero') {
     if (!tiberoPool) throw new Error('[DB] Tibero pool is not initialized.');
@@ -161,6 +175,7 @@ async function transaction(fn) {
     await conn.close();
   }
 }
+
 module.exports = {
   initDB: initDB,
   execute: execute,

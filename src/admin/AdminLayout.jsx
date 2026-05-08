@@ -8,6 +8,7 @@ import AppListTab   from './AppListTab'
 import EmailTab     from './EmailTab'
 import AccountsTab  from './AccountsTab'
 import ApprovalTab  from './ApprovalTab'
+import CancelApprovalTab from './CancelApprovalTab'
 
 export default function AdminLayout({ employees, apps, settings, fundUsed, saveEmp, saveApps, saveSettings, saveFundUsed, refreshEmp, adminAuth }) {
   const [tab, setTab] = useState('lottery')
@@ -15,6 +16,7 @@ export default function AdminLayout({ employees, apps, settings, fundUsed, saveE
   if (!adminAuth) return <Alert type="danger">관리자 권한이 없습니다.</Alert>
 
   const pendingCount = Object.values(employees).filter(e => e.status === 'pending').length
+  const cancelReqCount = apps.filter(a => a.status === 'cancel_requested').length
 
   const TABS = [
     { id: 'lottery',  label: '추첨 실행'     },
@@ -22,6 +24,7 @@ export default function AdminLayout({ employees, apps, settings, fundUsed, saveE
     { id: 'fund',     label: '발전기금 현황'  },
     { id: 'rooms',    label: '객실 설정'      },
     { id: 'applist',  label: '신청인 현황'    },
+    { id: 'cancel_approval', label: '취소 승인', badge: cancelReqCount },
     { id: 'email',    label: '메일 발송'      },
     { id: 'accounts', label: '계정 관리'      },
     { id: 'approval', label: '가입 승인', badge: pendingCount },
@@ -33,7 +36,6 @@ export default function AdminLayout({ employees, apps, settings, fundUsed, saveE
     <div>
       <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 18 }}>관리자 대시보드</h2>
 
-      {/* 탭 네비게이션 */}
       <div style={{ display: 'flex', gap: 2, marginBottom: 22, borderBottom: '0.5px solid var(--color-border-tertiary)', overflowX: 'auto' }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
@@ -55,12 +57,12 @@ export default function AdminLayout({ employees, apps, settings, fundUsed, saveE
         ))}
       </div>
 
-      {/* 탭 콘텐츠 */}
       {tab === 'lottery'  && <LotteryTab   {...ctx} />}
       {tab === 'period'   && <PeriodTab    {...ctx} />}
       {tab === 'fund'     && <FundTab      {...ctx} />}
       {tab === 'rooms'    && <RoomsTab     {...ctx} />}
       {tab === 'applist'  && <AppListTab   {...ctx} />}
+      {tab === 'cancel_approval' && <CancelApprovalTab {...ctx} />}
       {tab === 'email'    && <EmailTab     {...ctx} />}
       {tab === 'accounts' && <AccountsTab  {...ctx} />}
       {tab === 'approval' && <ApprovalTab  {...ctx} />}

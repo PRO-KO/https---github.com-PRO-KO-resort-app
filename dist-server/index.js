@@ -11,54 +11,23 @@ var crypto = require('crypto');
 var util   = require('util');
 var path   = require('path');
 
-// ── 외부 모듈 로드 실패 시 원인 모듈명을 명확히 출력하는 헬퍼 ─────────────────
-function requireSafe(moduleName) {
-  try {
-    return require(moduleName);
-  } catch (err) {
-    if (err.code === 'MODULE_NOT_FOUND') {
-      console.error('[FATAL] 모듈을 찾을 수 없습니다: "' + moduleName + '"');
-      console.error('        프로젝트 루트에서 npm install 을 실행하세요.');
-    } else {
-      console.error('[FATAL] 모듈 로드 오류: "' + moduleName + '" —', err.message);
-    }
-    process.exit(1);
-  }
-}
-
-// ── 로컬 모듈 로드 실패 시 경로 오류를 명확히 출력하는 헬퍼 ───────────────────
-function requireLocal(relativePath) {
-  var fullPath = path.resolve(__dirname, relativePath);
-  try {
-    return require(fullPath);
-  } catch (err) {
-    if (err.code === 'MODULE_NOT_FOUND') {
-      console.error('[FATAL] 로컬 모듈을 찾을 수 없습니다: "' + fullPath + '"');
-      console.error('        dist-server/ 폴더에 해당 파일이 있는지 확인하세요.');
-    } else {
-      console.error('[FATAL] 로컬 모듈 로드 오류: "' + fullPath + '" —', err.message);
-    }
-    process.exit(1);
-  }
-}
-
 // ── dotenv: 실행 위치와 무관하게 프로젝트 루트의 .env 를 로드 ─────────────────
 // __dirname = dist-server/, 따라서 ../ 가 프로젝트 루트
-requireSafe('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 // ── 외부 패키지 ───────────────────────────────────────────────────────────────
-var express = requireSafe('express');
-var helmet  = requireSafe('helmet');
-var cors    = requireSafe('cors');
-var jwt     = requireSafe('jsonwebtoken');
+var express = require('express');
+var helmet  = require('helmet');
+var cors    = require('cors');
+var jwt     = require('jsonwebtoken');
 
 // ── 로컬 모듈 (dist-server/ 디렉터리 기준 절대 경로) ─────────────────────────
-var db              = requireLocal('./db.js');
+var db              = require(path.join(__dirname, 'db.js'));
 var initDB          = db.initDB;
 var execute         = db.execute;
 var transaction     = db.transaction;
 
-var mailer          = requireLocal('./mailer.js');
+var mailer          = require(path.join(__dirname, 'mailer.js'));
 var mailLotteryResult = mailer.mailLotteryResult;
 var internalEmailFor  = mailer.internalEmailFor;
 var verifyMailer      = mailer.verifyMailer;
