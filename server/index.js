@@ -169,6 +169,7 @@ app.post('/api/auth/login', async function(req, res) {
         const token = jwt.sign({ empId: emp.EMP_ID, isAdmin: false }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
         return res.json({ token: token, empId: emp.EMP_ID });
     } catch (err) {
+        console.error('[API /api/auth/login] Error:', err);
         return res.status(500).json({ message: '서버 오류' });
     }
 });
@@ -197,11 +198,11 @@ app.post('/api/auth/refresh', auth, function(req, res) {
 app.get('/api/employees', auth, adminOnly, async function(req, res) {
     const status = req.query.status;
     try {
-        const sql = "SELECT EMP_ID, STATUS, ORGANIZATION, DEPARTMENT, PHONE, TO_CHAR(CREATED_AT, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS CREATED_AT FROM KOSHA_EMPLOYEES " + (status ? "WHERE STATUS = :1" : "") + " ORDER BY CREATED_AT DESC";
+        const sql = "SELECT EMP_ID, EMP_NAME, STATUS, ORGANIZATION, DEPARTMENT, PHONE, TO_CHAR(CREATED_AT, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS CREATED_AT, TO_CHAR(APPROVED_AT, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS APPROVED_AT FROM KOSHA_EMPLOYEES " + (status ? "WHERE STATUS = :1" : "") + " ORDER BY CREATED_AT DESC";
         const result = await execute(sql, status ? [status] : []);
         const map = {};
         result.rows.forEach(function(row) {
-            map[row.EMP_ID] = { empId: row.EMP_ID, status: row.STATUS, organization: row.ORGANIZATION, department: row.DEPARTMENT, phone: row.PHONE, createdAt: row.CREATED_AT };
+            map[row.EMP_ID] = { empId: row.EMP_ID, empName: row.EMP_NAME, status: row.STATUS, organization: row.ORGANIZATION, department: row.DEPARTMENT, phone: row.PHONE, createdAt: row.CREATED_AT, approvedAt: row.APPROVED_AT };
         });
         return res.json(map);
     } catch (err) { return res.status(500).json({ message: '오류' }); }
@@ -212,19 +213,77 @@ app.post('/api/employees/register', async function(req, res) {
     const salt = generateSalt();
     try {
         const hash = await hashPwd(b.password, salt);
-        await execute("INSERT INTO KOSHA_EMPLOYEES (EMP_ID, PW_HASH, PW_SALT, STATUS, ORGANIZATION, DEPARTMENT, PHONE, CREATED_AT) VALUES (:1, :2, :3, 'pending', :4, :5, :6, SYSTIMESTAMP)", 
-            [b.empId, hash, salt, b.organization, b.department, b.phone]);
+        await execute("INSERT INTO KOSHA_EMPLOYEES (EMP_ID, PW_HASH, PW_SALT, EMP_NAME, STATUS, ORGANIZATION, DEPARTMENT, PHONE, CREATED_AT) VALUES (:1, :2, :3, :4, 'pending', :5, :6, :7, SYSTIMESTAMP)", 
+            [b.empId, hash, salt, b.empName, b.organization, b.department, b.phone]);
         return res.status(201).json({ message: '신청 완료' });
     } catch (err) { return res.status(500).json({ message: '이미 존재하는 사번이거나 오류입니다.' }); }
 });
 
 app.put('/api/employees/:empId', auth, adminOnly, async function(req, res) {
-    const empId = req.params.empId;
-    const status = req.body.status;
+    const empId = (req.params.empId || '').trim().toUpperCase();
+    const b = req.body;
     try {
-        await execute("UPDATE KOSHA_EMPLOYEES SET STATUS = :1, APPROVED_AT = (CASE WHEN :1 = 'approved' THEN SYSTIMESTAMP ELSE NULL END) WHERE EMP_ID = :2", [status, empId]);
-        return res.json({ message: '상태 변경 완료' });
-    } catch (err) { return res.status(500).json({ message: '오류' }); }
+        if (b.status === 'rejected') {
+            const r = await execute("DELETE FROM KOSHA_EMPLOYEES WHERE EMP_ID = :1", [empId]);
+            if (r.rowsAffected === 0) return res.status(404).json({ message: '직원을 찾을 수 없습니다.' });
+            return res.json({ message: '거절 및 삭제 완료' });
+        }
+
+        // 상태 또는 비밀번호 업데이트
+        let sql = "UPDATE KOSHA_EMPLOYEES SET ";
+        const sets = [];
+        const params = [];
+        
+        if (b.status) {
+            sets.push("STATUS = :" + (params.length + 1));
+            params.push(b.status);
+            sets.push("APPROVED_AT = (CASE WHEN :" + (params.length + 1) + " = 'approved' THEN SYSTIMESTAMP ELSE NULL END)");
+            params.push(b.status);
+        }
+        if (b.pwHash && b.pwSalt) {
+            sets.push("PW_HASH = :" + (params.length + 1));
+            params.push(b.pwHash);
+            sets.push("PW_SALT = :" + (params.length + 1));
+            params.push(b.pwSalt);
+        }
+
+        if (sets.length === 0) return res.status(400).json({ message: '수정할 내용이 없습니다.' });
+
+        sql += sets.join(", ");
+        sql += " WHERE EMP_ID = :" + (params.length + 1);
+        params.push(empId);
+
+        const r = await execute(sql, params);
+        if (r.rowsAffected === 0) return res.status(404).json({ message: '직원을 찾을 수 없습니다. (ID: ' + empId + ')' });
+
+        return res.json({ message: '수정 완료' });
+    } catch (err) { 
+        console.error('[API PUT /api/employees/:empId] Error:', err);
+        return res.status(500).json({ message: '서버 오류' }); 
+    }
+});
+
+app.delete('/api/employees/:empId', auth, adminOnly, async function(req, res) {
+    const empId = req.params.empId;
+    try {
+        await execute("DELETE FROM KOSHA_EMPLOYEES WHERE EMP_ID = :1", [empId]);
+        return res.json({ message: '삭제 완료' });
+    } catch (err) {
+        console.error('[API DELETE /api/employees/:empId] Error:', err);
+        return res.status(500).json({ message: '오류' });
+    }
+});
+
+app.post('/api/employees', auth, adminOnly, async function(req, res) {
+    const b = req.body;
+    try {
+        await execute("INSERT INTO KOSHA_EMPLOYEES (EMP_ID, PW_HASH, PW_SALT, EMP_NAME, STATUS, ORGANIZATION, DEPARTMENT, PHONE, CREATED_AT, APPROVED_AT) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, SYSTIMESTAMP, SYSTIMESTAMP)", 
+            [b.empId, b.pwHash, b.pwSalt, b.empName, b.status || 'approved', b.organization, b.department, b.phone]);
+        return res.status(201).json({ message: '추가 완료' });
+    } catch (err) { 
+        console.error('[API POST /api/employees] Error:', err);
+        return res.status(500).json({ message: '이미 존재하는 사번이거나 오류입니다.' }); 
+    }
 });
 
 // ── 라우터: 신청 관리 ─────────────────────────────────────────────────────────
@@ -239,6 +298,76 @@ app.get('/api/apps', auth, async function(req, res) {
                 remarks: r.REMARKS, cancelReason: r.CANCEL_REASON, createdAt: r.CREATED_AT 
             };
         }));
+    } catch (err) { return res.status(500).json({ message: '오류' }); }
+});
+
+// 서버 사이드 무작위 추첨
+app.post('/api/apps/lottery', auth, adminOnly, async function(req, res) {
+    const month = req.body.month;
+    const year = new Date().getFullYear();
+    try {
+        const settingsRes = await execute("SELECT SETTING_VAL FROM KOSHA_SETTINGS WHERE SETTING_KEY = 'settings'");
+        const settings = JSON.parse(settingsRes.rows[0].SETTING_VAL);
+        const quota = settings.quotas[month] || 20;
+
+        await transaction(async (conn) => {
+            // 1. 현재 해당 월의 별도배정(manual) 인원 확인
+            const manualRes = await conn.execute("SELECT COUNT(*) AS CNT FROM KOSHA_APPS WHERE APP_YEAR = :1 AND APP_MONTH = :2 AND STATUS = 'manual'", [year, month]);
+            const manualCnt = manualRes.rows[0].CNT || 0;
+            const effectiveQuota = Math.max(0, quota - manualCnt);
+
+            // 2. 기존 'selected' 또는 'rejected' 인원을 'pending'으로 초기화 (재추첨 가능하도록)
+            await conn.execute("UPDATE KOSHA_APPS SET STATUS = 'pending' WHERE APP_YEAR = :1 AND APP_MONTH = :2 AND (STATUS = 'selected' OR STATUS = 'rejected')", [year, month]);
+
+            if (effectiveQuota > 0) {
+                // 3. 대기자 풀 가져오기
+                const poolRes = await conn.execute("SELECT APP_ID FROM KOSHA_APPS WHERE APP_YEAR = :1 AND APP_MONTH = :2 AND STATUS = 'pending'", [year, month]);
+                const pool = poolRes.rows;
+                
+                if (pool.length > 0) {
+                    // 무작위 셔플
+                    for (let i = pool.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [pool[i], pool[j]] = [pool[j], pool[i]];
+                    }
+                    
+                    const winners = pool.slice(0, effectiveQuota);
+                    const losers = pool.slice(effectiveQuota);
+                    
+                    // 4. 당첨 처리
+                    for (const w of winners) {
+                        await conn.execute("UPDATE KOSHA_APPS SET STATUS = 'selected' WHERE APP_ID = :1", [w.APP_ID]);
+                    }
+                    // 5. 낙첨 처리
+                    for (const l of losers) {
+                        await conn.execute("UPDATE KOSHA_APPS SET STATUS = 'rejected' WHERE APP_ID = :1", [l.APP_ID]);
+                    }
+                }
+            }
+        });
+
+        await recalculateFundUsed();
+        return res.json({ message: '추첨이 완료되었습니다.' });
+    } catch (err) {
+        console.error('[API POST /api/apps/lottery] Error:', err);
+        return res.status(500).json({ message: '추첨 중 오류 발생' });
+    }
+});
+
+// 특정 월 신청 상태 초기화 (발전기금 관리용)
+app.post('/api/apps/reset', auth, adminOnly, async function(req, res) {
+    const month = req.body.month; // undefined이면 전체
+    const year = new Date().getFullYear();
+    try {
+        let sql = "UPDATE KOSHA_APPS SET STATUS = 'pending' WHERE APP_YEAR = :1 AND (STATUS = 'selected' OR STATUS = 'manual')";
+        const params = [year];
+        if (month) {
+            sql += " AND APP_MONTH = :2";
+            params.push(month);
+        }
+        await execute(sql, params);
+        await recalculateFundUsed();
+        return res.json({ message: '초기화 완료' });
     } catch (err) { return res.status(500).json({ message: '오류' }); }
 });
 
@@ -259,16 +388,44 @@ app.post('/api/apps', auth, async function(req, res) {
     } catch (err) { return res.status(500).json({ message: '오류' }); }
 });
 
-// 신청 상태 변경 (관리자용 - 지원금 및 비고 수정 포함)
+// 신청 상태 및 정보 변경 (관리자용)
 app.put('/api/apps/:id', auth, adminOnly, async function(req, res) {
     const id = req.params.id;
     const b = req.body;
     try {
-        await execute("UPDATE KOSHA_APPS SET SUBSIDY = :1, REMARKS = :2 WHERE APP_ID = :3", [b.subsidy, b.remarks, id]);
-        // 발전기금 사용량 합계 재계산 (생략 가능하나 정확성을 위해)
+        // 동적으로 쿼리 생성 (status, subsidy, remarks 중 전달된 것만 업데이트)
+        let sql = "UPDATE KOSHA_APPS SET ";
+        const sets = [];
+        const params = [];
+
+        if (b.status) {
+            sets.push("STATUS = :" + (params.length + 1));
+            params.push(b.status);
+        }
+        if (b.subsidy !== undefined) {
+            sets.push("SUBSIDY = :" + (params.length + 1));
+            params.push(b.subsidy);
+        }
+        if (b.remarks !== undefined) {
+            sets.push("REMARKS = :" + (params.length + 1));
+            params.push(b.remarks);
+        }
+
+        if (sets.length === 0) return res.status(400).json({ message: '수정할 내용이 없습니다.' });
+
+        sql += sets.join(", ");
+        sql += " WHERE APP_ID = :" + (params.length + 1);
+        params.push(id);
+
+        const r = await execute(sql, params);
+        if (r.rowsAffected === 0) return res.status(404).json({ message: '신청 내역을 찾을 수 없습니다.' });
+
         await recalculateFundUsed();
         return res.json({ message: '수정 완료' });
-    } catch (err) { return res.status(500).json({ message: '오류' }); }
+    } catch (err) { 
+        console.error('[API PUT /api/apps/:id] Error:', err);
+        return res.status(500).json({ message: '오류' }); 
+    }
 });
 
 // 신청 취소 (사용자용)
@@ -307,7 +464,7 @@ app.post('/api/apps/:id/approve-cancel', auth, adminOnly, async function(req, re
             
             // 재추첨 로직
             const quotaResult = await conn.execute("SELECT SETTING_VAL FROM KOSHA_SETTINGS WHERE SETTING_KEY = 'settings'");
-            const settings = JSON.parse(typeof quotaResult.rows[0].SETTING_VAL === 'string' ? quotaResult.rows[0].SETTING_VAL : await quotaResult.rows[0].SETTING_VAL.getData());
+            const settings = JSON.parse(quotaResult.rows[0].SETTING_VAL);
             const monthQuota = settings.quotas[appRecord.APP_MONTH] || 20;
             
             const currentWinners = await conn.execute("SELECT COUNT(*) AS CNT FROM KOSHA_APPS WHERE APP_YEAR = :1 AND APP_MONTH = :2 AND (STATUS = 'selected' OR STATUS = 'manual')", [appRecord.APP_YEAR, appRecord.APP_MONTH]);
@@ -344,9 +501,12 @@ app.get('/api/settings', auth, async function(req, res) {
     try {
         const result = await execute("SELECT SETTING_VAL FROM KOSHA_SETTINGS WHERE SETTING_KEY = 'settings'");
         if (result.rows.length === 0) return res.status(404).send();
-        const raw = typeof result.rows[0].SETTING_VAL === 'string' ? result.rows[0].SETTING_VAL : await result.rows[0].SETTING_VAL.getData();
+        const raw = result.rows[0].SETTING_VAL;
         return res.json(JSON.parse(raw));
-    } catch (err) { return res.status(500).send(); }
+    } catch (err) {
+        console.error('[API /api/settings] Error:', err);
+        return res.status(500).send();
+    }
 });
 
 app.put('/api/settings', auth, adminOnly, async function(req, res) {
@@ -364,9 +524,12 @@ app.get('/api/fund', auth, async function(req, res) {
     try {
         const result = await execute("SELECT SETTING_VAL FROM KOSHA_SETTINGS WHERE SETTING_KEY = 'fundUsed'");
         if (result.rows.length === 0) return res.json({ value: 0 });
-        const raw = typeof result.rows[0].SETTING_VAL === 'string' ? result.rows[0].SETTING_VAL : await result.rows[0].SETTING_VAL.getData();
+        const raw = result.rows[0].SETTING_VAL;
         return res.json({ value: parseInt(raw) || 0 });
-    } catch (err) { return res.status(500).send(); }
+    } catch (err) {
+        console.error('[API /api/fund] Error:', err);
+        return res.status(500).send();
+    }
 });
 
 async function recalculateFundUsed() {

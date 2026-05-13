@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import * as API from '../api'
 import { ADMIN_PW, ADMIN_PW_CONFIGURED, YEAR } from '../constants'
 import {
   verifyPwdCompat, needsUpgrade, hashPwd, generateSalt,
@@ -29,84 +30,38 @@ export default function LoginPage({ employees, saveEmp, loginUser, loginAdmin, s
 
   const handleLogin = async () => {
     if (loading) return
-    // 새니타이징
     const id = normalizeEmpId(empId)
     if (!id || !pw) { setErr('사번과 비밀번호를 입력해주세요.'); return }
-    if (pw.length > 128) { setErr('비밀번호가 너무 깁니다.'); return }
-
-    // 잠금 확인 (Brute-force 방지)
-    const lock = checkLock(id)
-    if (lock.locked) {
-      setErr(`로그인 시도 횟수 초과. ${lock.remainMin}분 후 다시 시도해주세요.`)
-      return
-    }
-
-    const storedId = employees[id] ? id : Object.keys(employees).find(empId => empId.toUpperCase() === id)
-    const emp = storedId ? employees[storedId] : null
-
-    // ※ 사용자 존재 여부를 같은 에러 메시지로 표현 (사용자 열거 공격 방지)
-    if (!emp || emp.status === 'rejected') {
-      recordFail(id)
-      setErr('사번 또는 비밀번호가 올바르지 않습니다.')
-      return
-    }
-
-    if (emp.status === 'pending') {
-      setErr('관리자 승인 대기 중입니다. 승인 후 로그인할 수 있습니다.')
-      return
-    }
 
     setErr('')
     setLoading(true)
     try {
-      // 비밀번호 검증 (PBKDF2 or 구버전 호환)
-      const ok = await verifyPwdCompat(pw, emp)
-      if (!ok) {
-        const result = recordFail(id)
-        const remain = MAX_ATTEMPTS - result.attempts
-        setErr(result.locked
-          ? '로그인 시도 횟수 초과. 15분간 잠금됩니다.'
-          : `사번 또는 비밀번호가 올바르지 않습니다. (남은 시도: ${remain}회)`)
-        return
-      }
-
-      // 성공 처리
+      // 서버 API를 통한 로그인
+      const res = await API.login(id, pw)
+      API.setToken(res.token)
       clearLock(id)
       touchSession()
-
-      // 구버전 해시 자동 업그레이드 (PBKDF2로 마이그레이션)
-      if (needsUpgrade(emp)) {
-        const salt    = generateSalt()
-        const newHash = await hashPwd(pw, salt)
-        await saveEmp({ ...employees, [storedId]: { ...emp, pwHash: newHash, pwSalt: salt } })
-      }
-
-      loginUser({ empId: storedId })
+      loginUser({ empId: id })
     } catch (e) {
       console.error('[LoginPage handleLogin]', e)
-      setErr(e?.message || '로그인 중 오류가 발생했습니다. 브라우저/보안 설정을 확인해주세요.')
+      setErr(e?.message || '로그인 중 오류가 발생했습니다.')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleAdminLogin = () => {
-    if (!ADMIN_PW_CONFIGURED) {
-      setAdminErr('관리자 비밀번호가 설정되지 않았습니다. .env에 VITE_ADMIN_PW를 8자 이상으로 설정해주세요.')
-      return
-    }
-    const lock = checkLock('admin')
-    if (lock.locked) {
-      setAdminErr(`관리자 로그인 시도 횟수 초과. ${lock.remainMin}분 후 다시 시도해주세요.`)
-      return
-    }
-    if (secureTextEqual(adminPw, ADMIN_PW)) {
+  const handleAdminLogin = async () => {
+    setAdminErr('')
+    try {
+      // 서버 API를 통한 관리자 로그인
+      const res = await API.adminLogin(adminPw)
       clearLock('admin')
+      API.setToken(res.token)
       touchSession()
       loginAdmin()
-    } else {
+    } catch (e) {
       recordFail('admin')
-      setAdminErr('비밀번호가 올바르지 않습니다.')
+      setAdminErr(e.message || '관리자 비밀번호가 올바르지 않습니다.')
     }
   }
 
@@ -126,7 +81,7 @@ export default function LoginPage({ employees, saveEmp, loginUser, loginAdmin, s
             <Field label="사번" value={empId}
               onChange={v => { setEmpId(v); setErr('') }}
               onKeyDown={e => e.key === 'Enter' && handleLogin()}
-              placeholder="예: EMP-0001" />
+              placeholder="예: 2023008" />
             <Field label="비밀번호" type="password" value={pw}
               onChange={v => { setPw(v); setErr('') }}
               onKeyDown={e => e.key === 'Enter' && handleLogin()}

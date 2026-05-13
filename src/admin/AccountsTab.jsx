@@ -4,7 +4,7 @@ import { hashPwd, generateSalt, validate, sanitize, normalizeEmpId } from "../se
 import { Btn, Field, Alert } from "../components/UI";
 
 export default function AccountsTab({ employees, apps, saveEmp }) {
-  const [f, setF] = useState({ empId: '', pw: '', org: '', dept: '', phone: '' })
+  const [f, setF] = useState({ empId: '', empName: '', pw: '', org: '', dept: '', phone: '' })
   const [err,        setErr]        = useState('')
   const [ok,         setOk]         = useState('')
   const [loading,    setLoading]    = useState(false)
@@ -17,12 +17,13 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
   const upd   = k => v => setF(p => ({ ...p, [k]: v }))
   const flash = msg => { setOk(msg); setTimeout(() => setOk(''), 2500) }
 
-  const list = Object.values(employees)
+  const list = Object.values(employees || {})
     .filter(e => {
       if (e.status !== 'approved') return false
       if (!search) return true
       const q = search.toLowerCase()
       return e.empId.toLowerCase().includes(q) ||
+             e.empName?.toLowerCase().includes(q) ||
              e.organization?.toLowerCase().includes(q) ||
              e.department?.toLowerCase().includes(q) ||
              e.phone?.includes(q)
@@ -33,13 +34,15 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
   const addEmp = async () => {
     if (loading) return
     const id    = normalizeEmpId(f.empId)
+    const name  = sanitize.text(f.empName)
     const org   = sanitize.text(f.org)
     const dept  = sanitize.text(f.dept)
     const phone = sanitize.phone(f.phone)
 
     if (!id || !validate.empId(id))  { setErr('사번은 영문/숫자/하이픈/언더스코어 1~30자이어야 합니다.'); return }
+    if (!name)                       { setErr('이름을 입력해주세요.'); return }
     if (!validate.password(f.pw))    { setErr('비밀번호는 4~128자이어야 합니다.'); return }
-    if (employees[id] || Object.keys(employees).some(empId => empId.toUpperCase() === id)) {
+    if ((employees || {})[id] || Object.keys(employees || {}).some(empId => empId.toUpperCase() === id)) {
       setErr('이미 존재하는 사번입니다.')
       return
     }
@@ -50,14 +53,14 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
       const salt = generateSalt()
       const hash = await hashPwd(f.pw, salt)
       await saveEmp({
-        ...employees,
+        ...(employees || {}),
         [id]: {
-          empId: id, pwHash: hash, pwSalt: salt, status: 'approved',
+          empId: id, empName: name, pwHash: hash, pwSalt: salt, status: 'approved',
           organization: org, department: dept, phone,
           createdAt: new Date().toISOString(), approvedAt: new Date().toISOString(),
         },
       })
-      setF({ empId: '', pw: '', org: '', dept: '', phone: '' })
+      setF({ empId: '', empName: '', pw: '', org: '', dept: '', phone: '' })
       setErr('')
       flash(`${id} 계정 추가 완료.`)
       setShowAdd(false)
@@ -69,7 +72,7 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
     }
   }
 
-  const closeAddModal = () => { setShowAdd(false); setF({ empId: '', pw: '', org: '', dept: '', phone: '' }); setErr('') }
+  const closeAddModal = () => { setShowAdd(false); setF({ empId: '', empName: '', pw: '', org: '', dept: '', phone: '' }); setErr('') }
 
   // ── 비밀번호 초기화 ────────────────────────────────────────────────────────
   const resetPassword = async () => {
@@ -79,7 +82,7 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
     try {
       const salt = generateSalt()
       const hash = await hashPwd(resetPw, salt)
-      await saveEmp({ ...employees, [resetTarget.empId]: { ...employees[resetTarget.empId], pwHash: hash, pwSalt: salt } })
+      await saveEmp({ ...(employees || {}), [resetTarget.empId]: { ...(employees || {})[resetTarget.empId], pwHash: hash, pwSalt: salt } })
       flash(`${resetTarget.empId} 비밀번호 변경 완료.`)
       setResetTarget(null); setResetPw(''); setErr('')
     } catch (e) {
@@ -92,7 +95,7 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
 
   // ── 계정 삭제 ──────────────────────────────────────────────────────────────
   const deleteEmp = async id => {
-    const { [id]: _, ...rest } = employees
+    const { [id]: _, ...rest } = (employees || {})
     await saveEmp(rest)
     setDelConfirm(null)
     flash(`${id} 계정 삭제 완료.`)
@@ -119,7 +122,7 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
           >+</button>
         </div>
         <input value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="사번 / 기관 / 부서 / 전화 검색" style={{ width: 220, fontSize: 13 }} />
+          placeholder="사번 / 이름 / 기관 / 부서 검색" style={{ width: 220, fontSize: 13 }} />
       </div>
 
       {list.length === 0
@@ -129,7 +132,7 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
             <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '0.5px solid var(--color-border-secondary)' }}>
-                  {['사번', '기관', '부서', '전화', '가입일', '신청수', '비밀번호', '삭제'].map(h => (
+                  {['사번', '이름', '기관', '부서', '전화', '가입일', '신청수', '비밀번호', '삭제'].map(h => (
                     <th key={h} style={{ padding: '7px 9px', textAlign: 'left', color: 'var(--color-text-secondary)', fontWeight: 500 }}>{h}</th>
                   ))}
                 </tr>
@@ -138,13 +141,14 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
                 {list.map(emp => (
                   <tr key={emp.empId} style={{ borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
                     <td style={{ padding: '7px 9px', fontWeight: 500 }}>{emp.empId}</td>
+                    <td style={{ padding: '7px 9px', color: 'var(--color-text-secondary)' }}>{emp.empName ?? '-'}</td>
                     <td style={{ padding: '7px 9px', color: 'var(--color-text-secondary)' }}>{emp.organization ?? '-'}</td>
                     <td style={{ padding: '7px 9px', color: 'var(--color-text-secondary)' }}>{emp.department  ?? '-'}</td>
                     <td style={{ padding: '7px 9px', color: 'var(--color-text-secondary)' }}>{emp.phone       ?? '-'}</td>
                     <td style={{ padding: '7px 9px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
                       {emp.createdAt ? new Date(emp.createdAt).toLocaleDateString('ko-KR') : '-'}
                     </td>
-                    <td style={{ padding: '7px 9px' }}>{apps.filter(a => a.empId === emp.empId && a.year === YEAR).length}건</td>
+                    <td style={{ padding: '7px 9px' }}>{(apps || []).filter(a => a.empId === emp.empId && a.year === YEAR).length}건</td>
 
                     {/* 비밀번호 초기화 */}
                     <td style={{ padding: '7px 9px' }}>
@@ -203,6 +207,7 @@ export default function AccountsTab({ employees, apps, saveEmp }) {
             {err && <Alert type="danger">{err}</Alert>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 18 }}>
               <Field label="사번"          value={f.empId} onChange={upd('empId')} placeholder="EMP-0001" />
+              <Field label="이름"          value={f.empName} onChange={upd('empName')} placeholder="실명" />
               <Field label="기관"          value={f.org}   onChange={upd('org')}   placeholder="안전보건공단" />
               <Field label="부서"          value={f.dept}  onChange={upd('dept')}  placeholder="인사부" />
               <Field label="휴대폰"        type="tel" value={f.phone} onChange={upd('phone')} placeholder="010-0000-0000" />

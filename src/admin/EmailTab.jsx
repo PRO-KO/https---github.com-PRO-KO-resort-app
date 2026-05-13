@@ -10,7 +10,7 @@ export default function EmailTab({ apps, employees }) {
   const [preview,   setPreview]   = useState(null)
   const [search,    setSearch]    = useState('')
 
-  const allTargets = apps.filter(a =>
+  const allTargets = (apps || []).filter(a =>
     a.month === selMonth && a.year === YEAR &&
     ['selected', 'manual', 'rejected'].includes(a.status)
   )
@@ -19,7 +19,7 @@ export default function EmailTab({ apps, employees }) {
   const targetApps = search
     ? allTargets.filter(a => {
         const q = search.toLowerCase()
-        const emp = employees[a.empId]
+        const emp = (employees || {})[a.empId]
         return a.empId.toLowerCase().includes(q) ||
                emp?.organization?.toLowerCase().includes(q) ||
                emp?.department?.toLowerCase().includes(q) ||
@@ -36,7 +36,7 @@ export default function EmailTab({ apps, employees }) {
     const subject = type === 'winner'
       ? `[안전보건공단] 휴양소 예약 당첨 안내 (${selMonth}월)`
       : `[안전보건공단] 휴양소 예약 신청 결과 안내 (${selMonth}월)`
-    const body = buildEmailBody(type, app, employees[app.empId], selMonth)
+    const body = buildEmailBody(type, app, (employees || {})[app.empId], selMonth)
     setResults(r => ({ ...r, [app.id]: 'sending' }))
     try {
       await sendEmail(to, subject, body)
@@ -103,7 +103,7 @@ export default function EmailTab({ apps, employees }) {
           </div>
         : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {targetApps.map(app => {
-              const emp = employees[app.empId]
+              const emp = (employees || {})[app.empId]
               return (
                 <div key={app.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 'var(--border-radius-md)' }}>
                   <div>
@@ -142,7 +142,7 @@ export default function EmailTab({ apps, employees }) {
               제목: {preview.status === 'rejected' ? `[안전보건공단] 휴양소 예약 신청 결과 안내 (${selMonth}월)` : `[안전보건공단] 휴양소 예약 당첨 안내 (${selMonth}월)`}
             </p>
             <pre style={{ fontSize: 13, lineHeight: 1.8, color: 'var(--color-text-primary)', whiteSpace: 'pre-wrap', fontFamily: 'var(--font-sans)', background: 'var(--color-background-primary)', padding: '14px 16px', borderRadius: 'var(--border-radius-md)' }}>
-              {buildEmailBody(preview.status === 'rejected' ? 'loser' : 'winner', preview, employees[preview.empId], selMonth)}
+              {buildEmailBody(preview.status === 'rejected' ? 'loser' : 'winner', preview, (employees || {})[preview.empId], selMonth)}
             </pre>
           </div>
         </div>

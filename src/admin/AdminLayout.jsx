@@ -14,9 +14,10 @@ export default function AdminLayout({ employees, apps, settings, fundUsed, saveE
   const [tab, setTab] = useState('lottery')
 
   if (!adminAuth) return <Alert type="danger">관리자 권한이 없습니다.</Alert>
+  if (!employees || !apps) return <div style={{ padding: 20, textAlign: 'center', fontSize: 13, color: 'var(--color-text-tertiary)' }}>데이터를 준비 중입니다...</div>
 
-  const pendingCount = Object.values(employees).filter(e => e.status === 'pending').length
-  const cancelReqCount = apps.filter(a => a.status === 'cancel_requested').length
+  const pendingCount = Object.values(employees || {}).filter(e => e.status === 'pending').length
+  const cancelReqCount = (apps || []).filter(a => a.status === 'cancel_requested').length
 
   const TABS = [
     { id: 'lottery',  label: '추첨 실행'     },
@@ -30,7 +31,7 @@ export default function AdminLayout({ employees, apps, settings, fundUsed, saveE
     { id: 'approval', label: '가입 승인', badge: pendingCount },
   ]
 
-  const ctx = { employees, apps, settings, fundUsed, saveEmp, saveApps, saveSettings, saveFundUsed, refreshEmp }
+  const ctx = { employees: employees || {}, apps: apps || [], settings, fundUsed, saveEmp, saveApps, saveSettings, saveFundUsed, refreshEmp }
 
   return (
     <div>

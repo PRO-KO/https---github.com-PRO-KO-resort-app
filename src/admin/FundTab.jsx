@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { won, YEAR, MONTHS_KR, getSeason, pctOf } from '../constants'
+import { won, YEAR, MONTHS_KR, getSeason, pctOf, DEFAULT_SETTINGS } from '../constants'
 import { Btn, Card, Stat, ProgressBar, SeasonBadge } from '../components/UI'
+import * as API from '../api'
 
 export default function FundTab({ settings, apps, fundUsed, saveFundUsed, saveSettings, saveApps }) {
-  const budget   = settings.fundBudget ?? 20_000_000
+  const s = settings || DEFAULT_SETTINGS
+  const budget   = s.fundBudget ?? 20_000_000
   const fundLeft = budget - fundUsed
   const pct      = pctOf(fundUsed, budget)
 
@@ -20,7 +22,7 @@ export default function FundTab({ settings, apps, fundUsed, saveFundUsed, saveSe
 
   const saveBudget = async () => {
     const v = parseInt(budgetVal.replace(/,/g, '')) || budget
-    await saveSettings({ ...settings, fundBudget: v })
+    await saveSettings({ ...(settings || DEFAULT_SETTINGS), fundBudget: v })
     setEditBudget(false)
     flash(`배정액이 ${won(v)}으로 변경되었습니다.`)
   }
@@ -28,36 +30,44 @@ export default function FundTab({ settings, apps, fundUsed, saveFundUsed, saveSe
   // 월별 집행 데이터 계산 (status: selected | manual 인 앱만 집계)
   const monthly = [...Array(12)].map((_, i) => {
     const m   = i + 1
-    const sel = apps.filter(a => a.month === m && a.year === YEAR && (a.status === 'selected' || a.status === 'manual'))
+    const sel = (apps || []).filter(a => a.month === m && a.year === YEAR && (a.status === 'selected' || a.status === 'manual'))
     return { m, sub: sel.reduce((s, a) => s + a.subsidy, 0), cnt: sel.length }
   })
 
   // 전체 초기화: 올해 selected/manual 앱 전부 pending 복원 + fundUsed = 0
   const handleFullReset = async () => {
-    const newApps = apps.map(a =>
-      (a.year === YEAR && (a.status === 'selected' || a.status === 'manual'))
-        ? { ...a, status: 'pending' }
-        : a
-    )
-    await saveApps(newApps)
-    await saveFundUsed(0)
-    setFullResetConfirm(false)
-    flash('전체 집행 현황이 초기화되었습니다.')
+    try {
+      await API.resetApps()
+      // 서버에서 업데이트된 신청 내역 다시 불러오기
+      const newApps = await API.fetchApps()
+      saveApps(newApps)
+      // 발전기금 재계산 결과 가져오기
+      const { value } = await API.fetchFundUsed()
+      saveFundUsed(value)
+      
+      setFullResetConfirm(false)
+      flash('전체 집행 현황이 초기화되었습니다.')
+    } catch (e) {
+      alert('초기화 중 오류 발생: ' + e.message)
+    }
   }
 
   // 월별 초기화: 해당 월의 selected/manual 앱을 pending으로, fundUsed에서 해당 월 금액 차감
   const handleMonthReset = async (month) => {
-    const monthData = monthly.find(d => d.m === month)
-    const newApps = apps.map(a =>
-      (a.month === month && a.year === YEAR && (a.status === 'selected' || a.status === 'manual'))
-        ? { ...a, status: 'pending' }
-        : a
-    )
-    const newFundUsed = Math.max(0, fundUsed - (monthData?.sub ?? 0))
-    await saveApps(newApps)
-    await saveFundUsed(newFundUsed)
-    setMonthResetTarget(null)
-    flash(`${MONTHS_KR[month - 1]} 집행 현황이 초기화되었습니다.`)
+    try {
+      await API.resetApps(month)
+      // 서버에서 업데이트된 신청 내역 다시 불러오기
+      const newApps = await API.fetchApps()
+      saveApps(newApps)
+      // 발전기금 재계산 결과 가져오기
+      const { value } = await API.fetchFundUsed()
+      saveFundUsed(value)
+
+      setMonthResetTarget(null)
+      flash(`${MONTHS_KR[month - 1]} 집행 현황이 초기화되었습니다.`)
+    } catch (e) {
+      alert('초기화 중 오류 발생: ' + e.message)
+    }
   }
 
   return (
@@ -86,7 +96,7 @@ export default function FundTab({ settings, apps, fundUsed, saveFundUsed, saveSe
                   <input type="number" value={budgetVal} onChange={e => setBudgetVal(e.target.value)} style={{ width: 160 }} />
                   <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>원</span>
                   <Btn variant="primary" onClick={saveBudget} style={{ fontSize: 12, padding: '6px 14px' }}>저장</Btn>
-                  <Btn onClick={() => setEditBudget(false)} style={{ fontSize: 12, padding: '6px 14px' }}>취소</Btn>
+                  <Btn onClick={() => { setEditBudget(false); setBudgetVal(String(budget)) }} style={{ fontSize: 12, padding: '6px 14px' }}>취소</Btn>
                 </div>
               : <p style={{ fontSize: 22, fontWeight: 500 }}>{won(budget)}</p>
             }
@@ -163,7 +173,7 @@ export default function FundTab({ settings, apps, fundUsed, saveFundUsed, saveSe
             <tr style={{ borderTop: '1px solid var(--color-border-secondary)', background: 'var(--color-background-secondary)' }}>
               <td colSpan={2} style={{ padding: '8px 12px', fontWeight: 500 }}>합계</td>
               <td style={{ padding: '8px 12px', fontWeight: 500 }}>
-                {apps.filter(a => a.year === YEAR && (a.status === 'selected' || a.status === 'manual')).length}명
+                {(apps || []).filter(a => a.year === YEAR && (a.status === 'selected' || a.status === 'manual')).length}명
               </td>
               <td style={{ padding: '8px 12px', fontWeight: 500 }}>{won(fundUsed)}</td>
               <td />

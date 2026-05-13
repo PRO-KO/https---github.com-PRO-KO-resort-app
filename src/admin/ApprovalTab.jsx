@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { updateStatus } from '../api'
 import { fmtDate } from '../constants'
 import { Btn, Field } from '../components/UI'
 
@@ -6,10 +7,11 @@ import { Btn, Field } from '../components/UI'
 const matches = (emp, q) => {
   const s = q.toLowerCase()
   return (
-    emp.empId?.toLowerCase().includes(s) ||
-    emp.organization?.toLowerCase().includes(s) ||
-    emp.department?.toLowerCase().includes(s) ||
-    emp.phone?.includes(s)
+    emp?.empId?.toLowerCase().includes(s) ||
+    emp?.empName?.toLowerCase().includes(s) ||
+    emp?.organization?.toLowerCase().includes(s) ||
+    emp?.department?.toLowerCase().includes(s) ||
+    emp?.phone?.includes(s)
   )
 }
 
@@ -20,13 +22,11 @@ export default function ApprovalTab({ employees, saveEmp, refreshEmp }) {
   // 섹션별 검색어
   const [pendingSearch,  setPendingSearch]  = useState('')
   const [approvedSearch, setApprovedSearch] = useState('')
-  const [rejectedSearch, setRejectedSearch] = useState('')
 
-  // 섹션 접기/펼치기 (승인 완료, 거절됨은 기본 접힘)
+  // 섹션 접기/펼치기
   const [showApproved, setShowApproved] = useState(true)
-  const [showRejected, setShowRejected] = useState(false)
 
-  const allList = Object.values(employees)
+  const allList = Object.values(employees || {})
 
   const pendingList = allList
     .filter(e => e.status === 'pending' && (!pendingSearch || matches(e, pendingSearch)))
@@ -36,19 +36,37 @@ export default function ApprovalTab({ employees, saveEmp, refreshEmp }) {
     .filter(e => e.status === 'approved' && (!approvedSearch || matches(e, approvedSearch)))
     .sort((a, b) => String(b.approvedAt ?? b.createdAt ?? '').localeCompare(String(a.approvedAt ?? a.createdAt ?? '')))
 
-  const rejectedList = allList
-    .filter(e => e.status === 'rejected' && (!rejectedSearch || matches(e, rejectedSearch)))
-    .sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')))
-
-  const counts = { pending: allList.filter(e => e.status === 'pending').length, approved: allList.filter(e => e.status === 'approved').length, rejected: allList.filter(e => e.status === 'rejected').length }
+  const counts = { pending: allList.filter(e => e.status === 'pending').length, approved: allList.filter(e => e.status === 'approved').length }
 
   // 액션
-  const approve = async id => saveEmp({ ...employees, [id]: { ...employees[id], status: 'approved', approvedAt: new Date().toISOString() } })
-  const reject  = async () => {
-    await saveEmp({ ...employees, [rejectTarget]: { ...employees[rejectTarget], status: 'rejected', rejectedAt: new Date().toISOString(), rejectReason: rejectReason.trim() } })
-    setRejectTarget(null); setRejectReason('')
+  const approve = async id => {
+    try {
+      await updateStatus(id, 'approved')
+      if (refreshEmp) await refreshEmp()
+    } catch (e) {
+      alert('승인 중 오류가 발생했습니다: ' + e.message)
+    }
   }
-  const revert = async id => saveEmp({ ...employees, [id]: { ...employees[id], status: 'pending', approvedAt: undefined, rejectedAt: undefined, rejectReason: undefined } })
+
+  const reject  = async () => {
+    try {
+      const newEmps = { ...(employees || {}) }
+      delete newEmps[rejectTarget]
+      await saveEmp(newEmps)
+      setRejectTarget(null); setRejectReason('')
+    } catch (e) {
+      alert('거절 중 오류가 발생했습니다: ' + e.message)
+    }
+  }
+
+  const revert = async id => {
+    try {
+      await updateStatus(id, 'pending')
+      if (refreshEmp) await refreshEmp()
+    } catch (e) {
+      alert('상태 복원 중 오류가 발생했습니다: ' + e.message)
+    }
+  }
 
   // 공통 테이블 스타일
   const thStyle = { padding: '7px 9px', textAlign: 'left', color: 'var(--color-text-secondary)', fontWeight: 500, fontSize: 12, whiteSpace: 'nowrap' }
@@ -58,8 +76,8 @@ export default function ApprovalTab({ employees, saveEmp, refreshEmp }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
       {/* 요약 카드 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-        {[['승인 대기', counts.pending, 'warning'], ['승인 완료', counts.approved, 'success'], ['거절됨', counts.rejected, 'danger']].map(([l, v, t]) => (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
+        {[['승인 대기', counts.pending, 'warning'], ['승인 완료', counts.approved, 'success']].map(([l, v, t]) => (
           <div key={l} style={{ background: `var(--color-background-${t})`, borderRadius: 'var(--border-radius-md)', padding: '14px', textAlign: 'center' }}>
             <p style={{ fontSize: 11, color: `var(--color-text-${t})`, marginBottom: 5 }}>{l}</p>
             <p style={{ fontSize: 22, fontWeight: 500, color: `var(--color-text-${t})` }}>{v}</p>
@@ -94,7 +112,7 @@ export default function ApprovalTab({ employees, saveEmp, refreshEmp }) {
           </h3>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={pendingSearch} onChange={e => setPendingSearch(e.target.value)}
-              placeholder="사번 / 기관 / 부서 / 전화 검색"
+              placeholder="사번 / 이름 / 기관 / 부서 검색"
               style={{ fontSize: 13, width: 200 }} />
             {refreshEmp && (
               <Btn onClick={refreshEmp} style={{ fontSize: 11, padding: '5px 11px', flexShrink: 0 }} title="localStorage에서 최신 데이터 다시 읽기">
@@ -114,7 +132,7 @@ export default function ApprovalTab({ employees, saveEmp, refreshEmp }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
                 <thead>
                   <tr style={{ borderBottom: '0.5px solid var(--color-border-secondary)' }}>
-                    {['사번', '기관', '부서', '전화', '신청일', ''].map((h, i) => (
+                    {['사번', '이름', '기관', '부서', '전화', '신청일', ''].map((h, i) => (
                       <th key={i} style={thStyle}>{h}</th>
                     ))}
                   </tr>
@@ -123,6 +141,7 @@ export default function ApprovalTab({ employees, saveEmp, refreshEmp }) {
                   {pendingList.map(emp => (
                     <tr key={emp.empId} style={{ borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
                       <td style={{ ...tdStyle, fontWeight: 500, color: 'var(--color-text-primary)' }}>{emp.empId}</td>
+                      <td style={tdStyle}>{emp.empName || '-'}</td>
                       <td style={tdStyle}>{emp.organization || '-'}</td>
                       <td style={tdStyle}>{emp.department  || '-'}</td>
                       <td style={tdStyle}>{emp.phone       || '-'}</td>
@@ -154,7 +173,7 @@ export default function ApprovalTab({ employees, saveEmp, refreshEmp }) {
           </button>
           {showApproved && (
             <input value={approvedSearch} onChange={e => setApprovedSearch(e.target.value)}
-              placeholder="사번 / 기관 / 부서 / 전화 검색"
+              placeholder="사번 / 이름 / 기관 / 부서 검색"
               style={{ fontSize: 13, width: 220 }} />
           )}
         </div>
@@ -170,7 +189,7 @@ export default function ApprovalTab({ employees, saveEmp, refreshEmp }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
                   <thead>
                     <tr style={{ borderBottom: '0.5px solid var(--color-border-secondary)' }}>
-                      {['사번', '기관', '부서', '전화', '신청일', '승인일', ''].map((h, i) => (
+                      {['사번', '이름', '기관', '부서', '전화', '신청일', '승인일', ''].map((h, i) => (
                         <th key={i} style={thStyle}>{h}</th>
                       ))}
                     </tr>
@@ -179,6 +198,7 @@ export default function ApprovalTab({ employees, saveEmp, refreshEmp }) {
                     {approvedList.map(emp => (
                       <tr key={emp.empId} style={{ borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
                         <td style={{ ...tdStyle, fontWeight: 500, color: 'var(--color-text-primary)' }}>{emp.empId}</td>
+                        <td style={tdStyle}>{emp.empName || '-'}</td>
                         <td style={tdStyle}>{emp.organization || '-'}</td>
                         <td style={tdStyle}>{emp.department  || '-'}</td>
                         <td style={tdStyle}>{emp.phone       || '-'}</td>
@@ -194,60 +214,6 @@ export default function ApprovalTab({ employees, saveEmp, refreshEmp }) {
               </div>
         )}
       </section>
-
-      {/* ── 3. 거절됨 ────────────────────────────────────────────────────────── */}
-      {counts.rejected > 0 && (
-        <section>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showRejected ? 10 : 0, gap: 10, flexWrap: 'wrap' }}>
-            <button onClick={() => setShowRejected(v => !v)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: 0, fontFamily: 'var(--font-sans)' }}>
-              <h3 style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)' }}>거절됨</h3>
-              <span style={{ background: 'var(--color-background-danger)', color: 'var(--color-text-danger)', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99 }}>
-                {counts.rejected}명
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{showRejected ? '▲' : '▼'}</span>
-            </button>
-            {showRejected && (
-              <input value={rejectedSearch} onChange={e => setRejectedSearch(e.target.value)}
-                placeholder="사번 / 기관 / 부서 / 전화 검색"
-                style={{ fontSize: 13, width: 220 }} />
-            )}
-          </div>
-
-          {showRejected && (
-            rejectedList.length === 0
-              ? <div style={{ background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', padding: '20px', textAlign: 'center' }}>
-                  <p style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>검색 결과가 없습니다.</p>
-                </div>
-              : <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '0.5px solid var(--color-border-secondary)' }}>
-                        {['사번', '기관', '부서', '전화', '신청일', '거절 사유', ''].map((h, i) => (
-                          <th key={i} style={thStyle}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rejectedList.map(emp => (
-                        <tr key={emp.empId} style={{ borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
-                          <td style={{ ...tdStyle, fontWeight: 500, color: 'var(--color-text-primary)' }}>{emp.empId}</td>
-                          <td style={tdStyle}>{emp.organization || '-'}</td>
-                          <td style={tdStyle}>{emp.department  || '-'}</td>
-                          <td style={tdStyle}>{emp.phone       || '-'}</td>
-                          <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDate(emp.createdAt)}</td>
-                          <td style={{ ...tdStyle, color: 'var(--color-text-danger)' }}>{emp.rejectReason || '-'}</td>
-                          <td style={{ padding: '7px 9px' }}>
-                            <Btn onClick={() => revert(emp.empId)} style={{ fontSize: 11, padding: '4px 10px' }}>대기로</Btn>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-          )}
-        </section>
-      )}
 
     </div>
   )

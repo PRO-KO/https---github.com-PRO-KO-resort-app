@@ -6,7 +6,7 @@ import * as API from '../api'
 export default function CancelApprovalTab({ apps, employees, saveApps, saveFundUsed }) {
   const [loading, setLoading] = useState(false)
   
-  const requests = apps.filter(a => a.status === 'cancel_requested')
+  const requests = (apps || []).filter(a => a.status === 'cancel_requested')
 
   const approve = async (app) => {
     if (!window.confirm(`${app.empId}님의 취소 요청을 승인하고 재추첨을 진행하시겠습니까?`)) return
@@ -39,7 +39,7 @@ export default function CancelApprovalTab({ apps, employees, saveApps, saveFundU
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {requests.map(a => {
-            const emp = employees[a.empId]
+            const emp = (employees || {})[a.empId]
             return (
               <Card key={a.id}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>

@@ -23,6 +23,7 @@ CREATE TABLE KOSHA_EMPLOYEES (
     EMP_ID        VARCHAR2(30)    NOT NULL,         -- 사번 (예: EMP-0001)
     PW_HASH       VARCHAR2(64)    NOT NULL,         -- PBKDF2-SHA256 해시 (hex 64자)
     PW_SALT       VARCHAR2(32)    NOT NULL,         -- 랜덤 솔트 (hex 32자)
+    EMP_NAME      VARCHAR2(50),                     -- 이름
     STATUS        VARCHAR2(10)    NOT NULL,         -- 계정 상태: pending / approved / rejected
     ORGANIZATION  VARCHAR2(100),                    -- 기관명
     DEPARTMENT    VARCHAR2(100),                    -- 부서명

@@ -6,7 +6,10 @@
   "private": true,
   "scripts": {
     "dev": "node index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "build": "vite build",
+    "build:server": "babel server --out-dir dist-server",
+    "build:all": "npm run build && npm run build:server"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -16,11 +19,19 @@
     "jsonwebtoken": "^8.5.1",
     "nodemailer": "^6.4.17",
     "oracledb": "^5.5.0",
-    "regenerator-runtime": "^0.14.1"
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "regenerator-runtime": "^0.14.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@babel/cli": "^7.28.6",
     "@babel/core": "^7.29.0",
-    "@babel/preset-env": "^7.29.5"
+    "@babel/preset-env": "^7.29.5",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^4.3.0",
+    "vite": "^5.0.10"
   }
 }

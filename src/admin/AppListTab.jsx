@@ -20,10 +20,11 @@ export default function AppListTab({ apps, employees, saveApps, saveFundUsed }) 
 
   const downloadExcel = () => {
     const STATUS_KR = { pending: '대기', selected: '당첨', manual: '별도배정', rejected: '낙첨', cancelled: '취소', cancel_requested: '취소요청' }
-    const rows = filtered.map(a => {
-      const emp = employees[a.empId]
+    const rows = (filtered || []).map(a => {
+      const emp = (employees || {})[a.empId]
       return {
         '사번':         a.empId,
+        '이름':         emp?.empName      || '',
         '기관':         emp?.organization || '',
         '부서':         emp?.department   || '',
         '휴대폰':       emp?.phone        || '',
@@ -41,7 +42,7 @@ export default function AppListTab({ apps, employees, saveApps, saveFundUsed }) 
     })
 
     const ws = XLSX.utils.json_to_sheet(rows)
-    ws['!cols'] = [{ wch: 10 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 7 }, { wch: 16 }, { wch: 5 }, { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 20 }, { wch: 10 }]
+    ws['!cols'] = [{ wch: 10 }, { wch: 10 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 7 }, { wch: 16 }, { wch: 5 }, { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 20 }, { wch: 10 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, '신청목록')
     XLSX.writeFile(wb, `리조트신청목록_${YEAR}_${new Date().getTime()}.xlsx`)
@@ -58,7 +59,7 @@ export default function AppListTab({ apps, employees, saveApps, saveFundUsed }) 
       await API.updateApp(editingId, { subsidy: newSubsidy, remarks: editValue.remarks })
       
       // 로컬 상태 업데이트
-      const newApps = apps.map(a => a.id === editingId ? { ...a, subsidy: newSubsidy, remarks: editValue.remarks } : a)
+      const newApps = (apps || []).map(a => a.id === editingId ? { ...a, subsidy: newSubsidy, remarks: editValue.remarks } : a)
       saveApps(newApps)
       
       // 발전기금 재계산 (서버에서도 하지만 로컬 UI 즉시 반영용)
@@ -73,7 +74,7 @@ export default function AppListTab({ apps, employees, saveApps, saveFundUsed }) 
     }
   }
 
-  const filtered = apps
+  const filtered = (apps || [])
     .filter(a => {
       if (a.year !== YEAR) return false
       if (filterMonth  !== 'all' && a.month  !== parseInt(filterMonth))       return false
@@ -82,8 +83,9 @@ export default function AppListTab({ apps, employees, saveApps, saveFundUsed }) 
       if (dateTo   && new Date(a.appliedAt) > new Date(dateTo + 'T23:59:59')) return false
       if (search) {
         const q = search.toLowerCase()
-        const emp = employees[a.empId]
+        const emp = (employees || {})[a.empId]
         return a.empId.toLowerCase().includes(q) ||
+               emp?.empName?.toLowerCase().includes(q) ||
                emp?.organization?.toLowerCase().includes(q) ||
                emp?.department?.toLowerCase().includes(q) ||
                emp?.phone?.includes(q)
@@ -92,9 +94,9 @@ export default function AppListTab({ apps, employees, saveApps, saveFundUsed }) 
     })
     .sort((a, b) => {
       let av, bv
-      if (sortKey === 'organization' || sortKey === 'department' || sortKey === 'phone') {
-        av = employees[a.empId]?.[sortKey] ?? ''
-        bv = employees[b.empId]?.[sortKey] ?? ''
+      if (sortKey === 'empName' || sortKey === 'organization' || sortKey === 'department' || sortKey === 'phone') {
+        av = (employees || {})[a.empId]?.[sortKey] ?? ''
+        bv = (employees || {})[b.empId]?.[sortKey] ?? ''
       } else {
         av = a[sortKey] ?? ''
         bv = b[sortKey] ?? ''
@@ -113,7 +115,7 @@ export default function AppListTab({ apps, employees, saveApps, saveFundUsed }) 
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="사번 / 기관 / 부서" style={{ fontSize: 13 }} />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="사번 / 이름 / 기관 / 부서" style={{ fontSize: 13 }} />
         <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ fontSize: 13 }}>
           <option value="all">전체 월</option>
           {[...Array(12)].map((_, i) => <option key={i + 1} value={i + 1}>{MONTHS_KR[i]}</option>)}
@@ -135,6 +137,7 @@ export default function AppListTab({ apps, employees, saveApps, saveFundUsed }) 
           <thead>
             <tr style={{ borderBottom: '0.5px solid var(--color-border-secondary)' }}>
               <Th k="empId" label="사번" />
+              <Th k="empName" label="이름" />
               <Th k="organization" label="기관" />
               <Th k="department" label="부서" />
               <Th k="month" label="희망월" />
@@ -147,12 +150,13 @@ export default function AppListTab({ apps, employees, saveApps, saveFundUsed }) 
             </tr>
           </thead>
           <tbody>
-            {filtered.map(a => {
-              const emp = employees[a.empId]
+            {(filtered || []).map(a => {
+              const emp = (employees || {})[a.empId]
               const isEditing = editingId === a.id
               return (
                 <tr key={a.id} style={{ borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
                   <td style={{ padding: '7px 9px', fontWeight: 500 }}>{a.empId}</td>
+                  <td style={{ padding: '7px 9px' }}>{emp?.empName || '-'}</td>
                   <td style={{ padding: '7px 9px' }}>{emp?.organization || '-'}</td>
                   <td style={{ padding: '7px 9px' }}>{emp?.department || '-'}</td>
                   <td style={{ padding: '7px 9px' }}>{a.month}월</td>

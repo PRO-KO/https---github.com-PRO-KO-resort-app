@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { getSeason, won, YEAR, isPeriodOpen, PEAK_MONTHS, MAX_NIGHTS } from '../constants'
 import { Btn, Card, Alert } from '../components/UI'
 import CalendarPicker from '../components/CalendarPicker'
+import * as API from '../api'
 
 const toDs = d => {
   const dt = new Date(d)
@@ -19,7 +20,7 @@ export default function ApplyPage({ currentUser, settings, apps, saveApps }) {
   const empId  = currentUser?.empId ?? ''
   const sm     = parseInt(f.month)
   const isPeak = PEAK_MONTHS.includes(sm)
-  const room   = settings.rooms.find(r => r.id === f.roomId)
+  const room   = (settings?.rooms || []).find(r => r.id === f.roomId)
   const season = sm && room ? getSeason(sm) : null
 
   // 박수: 날짜 범위에서 자동 계산
@@ -29,16 +30,16 @@ export default function ApplyPage({ currentUser, settings, apps, saveApps }) {
 
   // 선택 날짜 잔여석 (성수기 체크인 날짜 기준)
   const selDay      = f.checkInDate ? parseInt(f.checkInDate.split('-')[2]) : null
-  const peakDayMax  = selDay ? (settings.peakDayQuotas?.[sm]?.[selDay] ?? 5) : 0
+  const peakDayMax  = selDay ? (settings?.peakDayQuotas?.[sm]?.[selDay] ?? 5) : 0
   const peakDayUsed = f.checkInDate
-    ? apps.filter(a => a.checkInDate === f.checkInDate && a.status !== 'rejected').length
+    ? (apps || []).filter(a => a.checkInDate === f.checkInDate && a.status !== 'rejected').length
     : 0
   const peakDayLeft = peakDayMax - peakDayUsed
 
   // 날짜별 1박 요금 (특별 요금 > 시즌 기본 요금)
   const resolveNightPrice = ds => {
     if (!room) return 0
-    const overrides = (settings.datePrices ?? [])
+    const overrides = (settings?.datePrices ?? [])
       .filter(p => p.roomId === f.roomId && p.from <= ds && p.to >= ds)
     if (overrides.length === 0) return room.prices[getSeason(parseInt(ds.split('-')[1]))] ?? 0
     const sorted = [...overrides].sort(
@@ -59,29 +60,43 @@ export default function ApplyPage({ currentUser, settings, apps, saveApps }) {
 
   const submit = async () => {
     if (!f.roomId)                        { setErr('객실을 선택해주세요.'); return }
-    if (!isPeriodOpen(settings, sm))      { setErr('해당 월의 신청 기간이 아닙니다.'); return }
+    if (!isPeriodOpen(settings || DEFAULT_SETTINGS, sm))      { setErr('해당 월의 신청 기간이 아닙니다.'); return }
     if (!f.checkInDate || !f.checkOutDate){ setErr('체크인·체크아웃 날짜를 선택해주세요.'); return }
     if (nights <= 0)                      { setErr('체크아웃은 체크인 다음 날 이후여야 합니다.'); return }
     if (nights > MAX_NIGHTS)             { setErr(`최대 ${MAX_NIGHTS}박까지만 신청 가능합니다.`); return }
     if (room && nights > room.maxNights)  { setErr(`최대 ${room.maxNights}박까지 신청 가능합니다.`); return }
     if (isPeak && peakDayLeft <= 0)       { setErr('선택한 날짜는 이미 신청이 마감되었습니다. 다른 날짜를 선택해주세요.'); return }
 
-    const dup = apps.find(a => a.empId === empId && a.month === sm && a.year === YEAR && a.status !== 'rejected' && a.status !== 'cancelled')
+    const dup = (apps || []).find(a => a.empId === empId && a.month === sm && a.year === YEAR && a.status !== 'rejected' && a.status !== 'cancelled')
     if (dup) { setErr('이미 해당 월에 신청 내역이 있습니다.'); return }
 
     const total   = computeTotal()
     const rate    = nights > 0 ? Math.round(total / nights) : 0
     const subsidy = room ? Math.round(total * room.supportRate / 100) : 0
 
-    const app = {
-      id: Date.now().toString(), empId, month: sm, year: YEAR,
-      roomId: f.roomId, roomType: room.name, nights,
+    const payload = {
+      month: sm, roomId: f.roomId, roomType: room.name, nights,
       checkInDate: f.checkInDate, checkOutDate: f.checkOutDate,
-      appliedAt: new Date().toISOString(), status: 'pending',
-      season, rate, total, supportRate: room.supportRate, subsidy,
+      total, subsidy
     }
-    await saveApps([...apps, app])
-    setDone(app); setErr('')
+
+    try {
+      const res = await API.applyReservation(payload)
+      const app = {
+        ...payload,
+        id: res.id, empId, year: YEAR, appliedAt: new Date().toISOString(), status: 'pending', season,
+        rate: nights > 0 ? Math.round(total / nights) : 0,
+        supportRate: room.supportRate
+      }
+      
+      // 서버에서 전체 목록 다시 불러와서 상태 동기화
+      const refreshedApps = await API.fetchApps()
+      saveApps(refreshedApps)
+      
+      setDone(app); setErr('')
+    } catch (e) {
+      setErr(e.message || '신청 처리 중 오류가 발생했습니다.')
+    }
   }
 
   const fmtDate = ds => new Date(ds + 'T00:00:00').toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -193,8 +208,8 @@ export default function ApplyPage({ currentUser, settings, apps, saveApps }) {
             key={sm}
             year={YEAR}
             month={sm}
-            settings={settings}
-            apps={apps}
+            settings={settings || DEFAULT_SETTINGS}
+            apps={apps || []}
             room={room}
             checkIn={f.checkInDate}
             checkOut={f.checkOutDate}

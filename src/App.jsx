@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import { DEFAULT_SETTINGS, ADMIN_PW, ADMIN_PW_CONFIGURED } from './constants'
+import { DEFAULT_SETTINGS } from './constants'
 import { lsGet, lsSet, KEYS } from './storage'
 import {
   touchSession, isSessionValid, clearSession, SESSION_MS,
   secureTextEqual, checkLock, recordFail, clearLock, getRuntimeCompatibility,
 } from './security'
 import { KoshaLogo, Btn } from './components/UI'
+import * as API from './api'
 
 import LoginPage    from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -32,20 +33,25 @@ export default function App() {
   const navLogoClicks = useRef(0)
   const navLogoTimer  = useRef(null)
 
+  // API 서버에서 데이터 로드
+  const loadData = async () => {
+    try {
+      const data = await API.loadAll()
+      if (data.employees) setEmployees(data.employees)
+      if (data.apps)      setApps(data.apps)
+      if (data.settings)  setSettings(data.settings)
+      setFundUsed(data.fundUsed)
+    } catch (e) {
+      console.error('[App loadData] API 로드 중 치명적 오류 발생:', e)
+      // 로컬 스토리지 덮어쓰기 로직 제거 (서버 데이터를 우선시)
+    }
+  }
+
   useEffect(() => {
     setCompatIssues(getRuntimeCompatibility().issues)
-    const emp = lsGet(KEYS.employees, {})
-    const a   = lsGet(KEYS.apps,      [])
-    const raw = lsGet(KEYS.settings,  DEFAULT_SETTINGS)
-    const fu  = lsGet(KEYS.fundUsed,  0)
-    if (!raw.rooms)              raw.rooms              = DEFAULT_SETTINGS.rooms
-    if (!raw.applicationPeriods) raw.applicationPeriods = DEFAULT_SETTINGS.applicationPeriods
-    if (!raw.fundBudget)         raw.fundBudget         = DEFAULT_SETTINGS.fundBudget
-    if (!raw.peakDayQuotas)      raw.peakDayQuotas      = DEFAULT_SETTINGS.peakDayQuotas
-    if (!raw.peakHolidays)       raw.peakHolidays       = DEFAULT_SETTINGS.peakHolidays
-    if (!raw.datePrices)         raw.datePrices         = DEFAULT_SETTINGS.datePrices
-    setEmployees(emp); setApps(a); setSettings(raw); setFundUsed(fu)
+    loadData()
 
+    // ── 실시간 업데이트를 위한 storage 이벤트 (로컬 스토리지 한정) ─────────────
     const onStorage = e => {
       if (e.key === KEYS.employees) setEmployees(lsGet(KEYS.employees, {}))
       if (e.key === KEYS.apps)      setApps(lsGet(KEYS.apps, []))
@@ -86,14 +92,32 @@ export default function App() {
     }
   }, [currentUser, adminAuth])
 
-  const saveEmp      = e => { setEmployees(e); lsSet(KEYS.employees, e) }
-  const saveApps     = a => { setApps(a);      lsSet(KEYS.apps,      a) }
-  const saveSettings = s => { setSettings(s);  lsSet(KEYS.settings,  s) }
-  const saveFundUsed = v => { setFundUsed(v);  lsSet(KEYS.fundUsed,  v) }
-  const refreshEmp   = () => setEmployees(lsGet(KEYS.employees, {}))
+  const saveEmp = async (e) => {
+    const old = employees || {}
+    setEmployees(e); lsSet(KEYS.employees, e)
+    try {
+      await API.saveEmployees(e, old)
+    } catch (err) { console.error('API saveEmp failed', err) }
+  }
 
-  const loginUser  = user => { setCurrentUser(user); setAdminAuth(false); setPage('home'); touchSession() }
-  const loginAdmin = ()   => { setCurrentUser(null); setAdminAuth(true);  setPage('admin'); touchSession() }
+  const saveApps = async (a) => {
+    setApps(a); lsSet(KEYS.apps, a)
+    // 개별 신청 저장 API가 따로 있으므로 이곳에서는 로컬 상태만 우선 업데이트
+    // 실제 신청 저장은 ApplyPage 등에서 API 호출로 이루어짐
+  }
+
+  const saveSettings = async (s) => {
+    setSettings(s); lsSet(KEYS.settings, s)
+    try {
+      await API.saveSettings(s)
+    } catch (err) { console.error('API saveSettings failed', err) }
+  }
+
+  const saveFundUsed = v => { setFundUsed(v); lsSet(KEYS.fundUsed, v) }
+  const refreshEmp   = () => loadData()
+
+  const loginUser  = async user => { setCurrentUser(user); setAdminAuth(false); setPage('home'); touchSession(); await loadData() }
+  const loginAdmin = async ()   => { setCurrentUser(null); setAdminAuth(true);  setPage('admin'); touchSession(); await loadData() }
 
   const handleNavLogoClick = () => {
     navLogoClicks.current += 1
@@ -105,34 +129,29 @@ export default function App() {
     }
   }
 
-  const confirmNavAdmin = () => {
-    if (!ADMIN_PW_CONFIGURED) {
-      setNavAdminErr('관리자 비밀번호가 설정되지 않았습니다. .env에 VITE_ADMIN_PW를 8자 이상으로 설정해주세요.')
-      return
-    }
-    const lock = checkLock('admin')
-    if (lock.locked) {
-      setNavAdminErr(`관리자 로그인 시도 횟수 초과. ${lock.remainMin}분 후 다시 시도해주세요.`)
-      return
-    }
-    if (secureTextEqual(navAdminPw, ADMIN_PW)) {
+  const confirmNavAdmin = async () => {
+    setNavAdminErr('')
+    try {
+      // 서버 API를 통한 관리자 로그인
+      const res = await API.adminLogin(navAdminPw)
+      API.setToken(res.token)
       clearLock('admin')
       setShowNavAdminModal(false); setNavAdminPw(''); setNavAdminErr('')
       loginAdmin()
-    } else {
+    } catch (e) {
       recordFail('admin')
-      setNavAdminErr('비밀번호가 올바르지 않습니다.')
+      setNavAdminErr(e.message || '비밀번호가 올바르지 않습니다.')
     }
   }
 
   const handleLogout = () => {
     setCurrentUser(null); setAdminAuth(false); setPage('login')
-    setSessionWarn(false); clearSession()
+    setSessionWarn(false); clearSession(); API.clearToken()
   }
 
-  if (!employees || !apps || !settings) return (
+  if (!employees || !apps) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--color-text-secondary)', fontSize: 14 }}>
-      로딩 중…
+      데이터를 불러오는 중…
     </div>
   )
 

@@ -34,6 +34,7 @@ function buildOracleConnectString() {
 
 async function initOracle() {
     var oracledb = require('oracledb');
+    oracledb.fetchAsString = [ oracledb.CLOB ];
     oracleDriver = oracledb;
 
     if (process.env.ORACLE_CLIENT_LIB_DIR) {
@@ -68,7 +69,14 @@ async function initOracle() {
 
 async function getOracleConn() {
     if (!oraclePool) throw new Error('[DB] Oracle pool is not initialized.');
-    return oraclePool.getConnection();
+    var conn = await oraclePool.getConnection();
+    // USR_BAK 소유의 테이블을 찾을 수 있도록 기본 스키마 설정
+    // try {
+    //     await conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USR_BAK");
+    // } catch (e) {
+    //     console.error('[DB] Schema setting failed:', e.message);
+    // }
+    return conn;
 }
 
 async function oraQuery(sql, binds, opts) {
@@ -122,6 +130,8 @@ function convertOracleBindsToOdbc(sql) {
 
 async function execute(sql, binds, opts) {
     binds = binds || [];
+    console.log('[DB-DEBUG] SQL:', sql, 'Binds:', JSON.stringify(binds));
+
     if (DB_TYPE === 'tibero') {
         var convertedSql = convertOracleBindsToOdbc(sql);
         var params = Array.isArray(binds) ? binds : Object.keys(binds).map(function(k) { return binds[k]; });
@@ -133,6 +143,8 @@ async function execute(sql, binds, opts) {
     }
 
     var oraResult = await oraQuery(sql, binds, opts);
+    console.log('[DB-DEBUG] Rows found:', oraResult.rows ? oraResult.rows.length : 0);
+
     return {
         rows: normalizeRows(oraResult.rows),
         rowsAffected: getRowsAffected(oraResult)

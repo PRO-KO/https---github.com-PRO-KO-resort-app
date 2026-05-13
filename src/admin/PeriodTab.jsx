@@ -1,6 +1,6 @@
 // PeriodTab — 신청 기간·공휴일·성수기 제한 캘린더 관리
 import { useState, useEffect } from 'react'
-import { MONTHS_KR, getSeason, PEAK_MONTHS, YEAR, isPeriodOpen } from '../constants'
+import { MONTHS_KR, getSeason, PEAK_MONTHS, YEAR, isPeriodOpen, DEFAULT_SETTINGS } from '../constants'
 import { Btn, Card, SeasonBadge } from '../components/UI'
 
 // ── 헬퍼 ──────────────────────────────────────────────────────────────────────
@@ -18,9 +18,10 @@ const buildCells = (year, month) => {
 }
 
 const initHolidays = settings => {
-  if (settings.holidays !== undefined) return JSON.parse(JSON.stringify(settings.holidays))
+  const s = settings || DEFAULT_SETTINGS
+  if (s.holidays !== undefined) return JSON.parse(JSON.stringify(s.holidays))
   const result = []
-  Object.entries(settings.peakHolidays ?? {}).forEach(([month, days]) => {
+  Object.entries(s.peakHolidays ?? {}).forEach(([month, days]) => {
     ;(days ?? []).forEach(day => {
       result.push({
         id:   `h_${month}_${day}`,
@@ -41,13 +42,24 @@ const MODES = [
 
 // ── 컴포넌트 ──────────────────────────────────────────────────────────────────
 export default function PeriodTab({ settings, apps, saveSettings }) {
+  const s = settings || DEFAULT_SETTINGS
   const [viewMonth,     setViewMonth]     = useState(new Date().getMonth() + 1)
   const [mode,          setMode]          = useState('period')
-  const [quotas,        setQuotas]        = useState({ ...settings.quotas })
-  const [periods,       setPeriods]       = useState(JSON.parse(JSON.stringify(settings.applicationPeriods ?? {})))
-  const [peakDayQuotas, setPeakDayQuotas] = useState(JSON.parse(JSON.stringify(settings.peakDayQuotas ?? {})))
+  const [quotas,        setQuotas]        = useState({ ...s.quotas })
+  const [periods,       setPeriods]       = useState(JSON.parse(JSON.stringify(s.applicationPeriods ?? {})))
+  const [peakDayQuotas, setPeakDayQuotas] = useState(JSON.parse(JSON.stringify(s.peakDayQuotas ?? {})))
   const [holidays,      setHolidays]      = useState(() => initHolidays(settings))
   const [saved,         setSaved]         = useState(false)
+
+  // settings가 뒤늦게 로드될 경우 대비
+  useEffect(() => {
+    if (settings) {
+      setQuotas({ ...settings.quotas })
+      setPeriods(JSON.parse(JSON.stringify(settings.applicationPeriods ?? {})))
+      setPeakDayQuotas(JSON.parse(JSON.stringify(settings.peakDayQuotas ?? {})))
+      setHolidays(initHolidays(settings))
+    }
+  }, [settings])
 
   // 드래그 선택
   const [drag, setDrag] = useState(null)    // { anchor, focus, active }
@@ -103,7 +115,7 @@ export default function PeriodTab({ settings, apps, saveSettings }) {
 
   const holOf = day => holidays.find(h => h.date === ds(day))
 
-  const dayUsed = day => apps.filter(
+  const dayUsed = day => (apps || []).filter(
     a => a.checkInDate === ds(day) && a.status !== 'rejected'
   ).length
 
@@ -187,7 +199,7 @@ export default function PeriodTab({ settings, apps, saveSettings }) {
         .map(h => new Date(h.date + 'T00:00:00').getDate())
         .sort((a, b) => a - b)
     })
-    await saveSettings({ ...settings, quotas, applicationPeriods: periods, peakDayQuotas, peakHolidays, holidays })
+    await saveSettings({ ...s, quotas, applicationPeriods: periods, peakDayQuotas, peakHolidays, holidays })
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
   }

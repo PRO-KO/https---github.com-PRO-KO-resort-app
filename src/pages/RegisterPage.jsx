@@ -1,27 +1,42 @@
 import { useState } from 'react'
-import { YEAR } from '../constants'
-import { hashPwd, generateSalt, validate, sanitize, normalizeEmpId } from '../security'
+import { validate, sanitize, normalizeEmpId } from '../security'
 import { Btn, Card, Alert, Field, KoshaLogo } from '../components/UI'
+import * as API from '../api'
 
-export default function RegisterPage({ employees, saveEmp, setPage }) {
-  const [f, setF] = useState({ empId: '', pw: '', pw2: '', organization: '', department: '', phone: '' })
+export default function RegisterPage({ employees, refreshEmp, setPage }) {
+  const [f, setF] = useState({ empId: '', empName: '', pw: '', pw2: '', organization: '', department: '', phone: '' })
   const [err,     setErr]     = useState('')
   const [done,    setDone]    = useState(false)
   const [loading, setLoading] = useState(false)
 
   const upd = k => v => setF(p => ({ ...p, [k]: v }))
 
+  const handlePhoneChange = v => {
+    // 숫자만 추출
+    const num = v.replace(/[^0-9]/g, '')
+    let formatted = num
+    if (num.length > 3 && num.length <= 7) {
+      formatted = num.slice(0, 3) + '-' + num.slice(3)
+    } else if (num.length > 7) {
+      formatted = num.slice(0, 3) + '-' + num.slice(3, 7) + '-' + num.slice(7, 11)
+    }
+    setF(p => ({ ...p, phone: formatted }))
+  }
+
   const submit = async () => {
     if (loading) return
 
     // ── 입력 검증 ─────────────────────────────────────────────────────────────
     const id = normalizeEmpId(f.empId)
+    const name = sanitize.text(f.empName)
     const org  = sanitize.text(f.organization)
     const dept = sanitize.text(f.department)
     const phone = sanitize.phone(f.phone)
 
     if (!id)               { setErr('사번을 입력해주세요.'); return }
     if (!validate.empId(id)) { setErr('사번은 영문/숫자/하이픈/언더스코어 1~30자만 허용됩니다.'); return }
+    if (!name)             { setErr('이름을 입력해주세요.'); return }
+    if (!validate.text50(name)) { setErr('이름은 1~50자이어야 합니다.'); return }
     if (!f.pw || !f.pw2)   { setErr('비밀번호를 입력해주세요.'); return }
     if (!validate.password(f.pw)) { setErr('비밀번호는 4~128자이어야 합니다.'); return }
     if (f.pw !== f.pw2)    { setErr('비밀번호가 일치하지 않습니다.'); return }
@@ -32,38 +47,24 @@ export default function RegisterPage({ employees, saveEmp, setPage }) {
     if (!phone)            { setErr('휴대폰번호를 입력해주세요.'); return }
     if (!validate.phone(phone)) { setErr('올바른 전화번호 형식이 아닙니다.'); return }
 
-    const existingId = Object.keys(employees).find(empId => empId.toUpperCase() === id)
-    if (existingId) {
-      const s = employees[existingId].status
-      if (s === 'pending')  { setErr('이미 가입 신청 중인 사번입니다. 관리자 승인을 기다려주세요.'); return }
-      if (s === 'approved') { setErr('이미 가입된 사번입니다.'); return }
-      if (s === 'rejected') { setErr('가입이 거절된 사번입니다. 관리자에게 문의해주세요.'); return }
-    }
-
     setErr('')
     setLoading(true)
     try {
-      // PBKDF2-SHA256 해싱
-      const salt = generateSalt()
-      const hash = await hashPwd(f.pw, salt)
-
-      await saveEmp({
-        ...employees,
-        [id]: {
-          empId: id,
-          pwHash: hash,
-          pwSalt: salt,           // 솔트 저장
-          status: 'pending',
-          organization: org,
-          department:   dept,
-          phone:        phone,
-          createdAt:    new Date().toISOString(),
-        },
+      // API 호출 (서버에서 해싱 처리)
+      await API.registerEmployee({
+        empId: id,
+        empName: name,
+        password: f.pw,
+        organization: org,
+        department: dept,
+        phone: phone
       })
+      
+      if (refreshEmp) await refreshEmp()
       setDone(true)
     } catch (e) {
       console.error('[RegisterPage submit]', e)
-      setErr(e?.message || '가입 신청 중 오류가 발생했습니다. 브라우저/보안 설정을 확인해주세요.')
+      setErr(e?.message || '가입 신청 중 오류가 발생했습니다. 이미 존재하는 사번이거나 서버 연결을 확인해주세요.')
     } finally {
       setLoading(false)
     }
@@ -80,7 +81,7 @@ export default function RegisterPage({ employees, saveEmp, setPage }) {
           </p>
         </div>
         <div style={{ background: 'var(--color-background-secondary)', borderRadius: 'var(--border-radius-md)', padding: '14px 16px', marginBottom: 20 }}>
-          {[['신청 사번', normalizeEmpId(f.empId)], ['기관', sanitize.text(f.organization)], ['부서', sanitize.text(f.department)], ['처리 상태', '승인 대기 중']].map(([k, v]) => (
+          {[['신청 사번', normalizeEmpId(f.empId)], ['이름', sanitize.text(f.empName)], ['기관', sanitize.text(f.organization)], ['부서', sanitize.text(f.department)], ['처리 상태', '승인 대기 중']].map(([k, v]) => (
             <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
               <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{k}</span>
               <span style={{ fontSize: 13, fontWeight: k === '처리 상태' ? 500 : 400, color: k === '처리 상태' ? 'var(--color-text-warning)' : 'var(--color-text-primary)' }}>{v}</span>
@@ -117,11 +118,12 @@ export default function RegisterPage({ employees, saveEmp, setPage }) {
           {err && <Alert type="danger">{err}</Alert>}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: 14, marginBottom: 14 }}>
-            <Field label="사번" value={f.empId} onChange={upd('empId')} placeholder="예: EMP-0001" required
+            <Field label="사번" value={f.empId} onChange={upd('empId')} placeholder="예: 2023008" required
               hint="영문/숫자/하이픈/언더스코어 최대 30자" />
-            <Field label="기관" value={f.organization} onChange={upd('organization')} placeholder="예: 안전보건공단" required />
-            <Field label="부서" value={f.department} onChange={upd('department')} placeholder="예: 인사부" required />
-            <Field label="휴대폰번호" type="tel" value={f.phone} onChange={upd('phone')} placeholder="010-0000-0000" required />
+            <Field label="이름" value={f.empName} onChange={upd('empName')} placeholder="실명을 입력해주세요" required />
+            <Field label="기관" value={f.organization} onChange={upd('organization')} placeholder="예: AI디지털전략실" required />
+            <Field label="부서" value={f.department} onChange={upd('department')} placeholder="예: 디지털계획부" required />
+            <Field label="휴대폰번호" type="tel" value={f.phone} onChange={handlePhoneChange} placeholder="010-0000-0000" required />
             <Field label="비밀번호 설정" type="password" value={f.pw} onChange={upd('pw')} placeholder="4~128자" required />
             <Field label="비밀번호 확인" type="password" value={f.pw2} onChange={upd('pw2')} placeholder="재입력" required />
           </div>

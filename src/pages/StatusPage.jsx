@@ -5,7 +5,7 @@ import * as API from '../api'
 
 export default function StatusPage({ currentUser, apps, saveApps }) {
   const empId  = currentUser?.empId ?? ''
-  const myApps = apps
+  const myApps = (apps || [])
     .filter(a => a.empId === empId && a.year === YEAR)
     .sort((a, b) => {
       const order = { cancel_requested: 0, pending: 1, selected: 2, manual: 3, rejected: 4, cancelled: 5 }

@@ -5,8 +5,8 @@ import { Card, Stat, SeasonBadge } from '../components/UI'
 export default function HomePage({ settings, apps, setPage }) {
   const cm       = new Date().getMonth() + 1
   const season   = getSeason(cm)
-  const pendingNow  = apps.filter(a => a.month === cm && a.status === 'pending').length
-  const periodOpen  = isPeriodOpen(settings, cm)
+  const pendingNow  = (apps || []).filter(a => a.month === cm && a.status === 'pending').length
+  const periodOpen  = isPeriodOpen(settings || DEFAULT_SETTINGS, cm)
 
   return (
     <div>
@@ -40,9 +40,9 @@ export default function HomePage({ settings, apps, setPage }) {
 
       <h2 style={{ fontSize: 15, fontWeight: 500, marginBottom: 12 }}>객실 정보</h2>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginBottom: 20 }}>
-        {settings.rooms.map(room => {
-          const applicants = apps.filter(a => a.month === cm && a.year === YEAR && a.roomId === room.id && a.status !== 'rejected').length
-          const quota      = settings.quotas[cm] ?? 20
+        {(settings?.rooms || []).map(room => {
+          const applicants = (apps || []).filter(a => a.month === cm && a.year === YEAR && a.roomId === room.id && a.status !== 'rejected').length
+          const quota      = (settings?.quotas || {})[cm] ?? 20
           const ratio      = quota > 0 ? `${applicants} : ${quota}` : '-'
           return (
             <Card key={room.id}>

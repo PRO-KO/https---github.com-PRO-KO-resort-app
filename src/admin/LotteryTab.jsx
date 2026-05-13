@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { won, YEAR, MONTHS_KR, getSeason, ADMIN_PW, ADMIN_PW_CONFIGURED } from '../constants'
 import { checkLock, clearLock, recordFail, secureTextEqual } from '../security'
 import { Btn, Card, Alert, AppStatusBadge } from '../components/UI'
+import * as API from '../api'
 
 export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFundUsed }) {
   const [selMonth,      setSelMonth]      = useState(new Date().getMonth() + 1)
@@ -16,8 +17,8 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
   const [pwInput,       setPwInput]       = useState('')
   const [pwErr,         setPwErr]         = useState('')
 
-  const quota     = settings.quotas[selMonth] ?? 20
-  const monthApps = apps.filter(a => a.month === selMonth && a.year === YEAR)
+  const quota     = (settings?.quotas || {})[selMonth] ?? 20
+  const monthApps = (apps || []).filter(a => a.month === selMonth && a.year === YEAR)
   const pending   = monthApps.filter(a => a.status === 'pending')
   const manual    = monthApps.filter(a => a.status === 'manual')
   const selected  = monthApps.filter(a => a.status === 'selected')
@@ -49,39 +50,22 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
   }
 
   // ── 무작위 추첨 ──────────────────────────────────────────────────────────
-  const runLottery = async (resetFirst = false) => {
-    let work = apps, curFund = fundUsed
-    if (resetFirst) {
-      const prev = apps
-        .filter(a => a.month === selMonth && a.year === YEAR && a.status === 'selected')
-        .reduce((s, a) => s + a.subsidy, 0)
-      work    = apps.map(a => a.month === selMonth && a.year === YEAR && a.status === 'selected' ? { ...a, status: 'pending' } : a)
-      curFund -= prev
+  const runLottery = async () => {
+    try {
+      const res = await API.runLottery(selMonth)
+      setMsg({ type: 'success', text: res.message })
+      // 서버에서 업데이트된 신청 내역 다시 불러오기
+      const newApps = await API.fetchApps()
+      saveApps(newApps)
+      
+      // 발전기금 재계산 (서버에서도 하지만 로컬 UI 즉시 반영용)
+      const { value: newFundUsed } = await API.fetchFundUsed()
+      saveFundUsed(newFundUsed)
+      
+      setConfirm(false)
+    } catch (e) {
+      setMsg({ type: 'danger', text: '추첨 실행 중 오류 발생: ' + e.message })
     }
-    const pool = work.filter(a => a.month === selMonth && a.year === YEAR && a.status === 'pending')
-    if (!pool.length) { setMsg({ type: 'warn', text: '대기 중인 신청자가 없습니다.' }); return }
-
-    const currentManual  = work.filter(a => a.month === selMonth && a.year === YEAR && a.status === 'manual').length
-    const effectiveQuota = Math.max(0, quota - currentManual)
-
-    if (effectiveQuota === 0) { setMsg({ type: 'warn', text: '별도배정 인원이 쿼터를 모두 채웠습니다.' }); return }
-
-    const shuffled  = [...pool].sort(() => Math.random() - 0.5)
-    const winners   = shuffled.slice(0, effectiveQuota)
-    const losers    = shuffled.slice(effectiveQuota)
-    const winSet    = new Set(winners.map(a => a.id))
-    const loseSet   = new Set(losers.map(a => a.id))
-    const addedFund = winners.reduce((s, a) => s + a.subsidy, 0)
-
-    const finalApps = work.map(a => {
-      if (winSet.has(a.id))  return { ...a, status: 'selected' }
-      if (loseSet.has(a.id)) return { ...a, status: 'rejected' }
-      return a
-    })
-    await saveApps(finalApps)
-    await saveFundUsed(curFund + addedFund)
-    setMsg({ type: 'success', text: `추첨 완료! 별도배정 ${currentManual}명 + 추첨당첨 ${winners.length}명, 낙첨 ${losers.length}명.` })
-    setConfirm(false)
   }
 
   // ── 별도 배정 ─────────────────────────────────────────────────────────────
@@ -92,12 +76,23 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
 
     const isManual  = app.status === 'manual'
     const newStatus = isManual ? 'pending' : 'manual'
-    const fundDelta = isManual ? -app.subsidy : app.subsidy
 
-    await saveApps(apps.map(a => a.id === app.id ? { ...a, status: newStatus } : a))
-    await saveFundUsed(fundUsed + fundDelta)
-    setManualMsg({ type: 'success', text: `${id} → ${newStatus === 'manual' ? '별도배정 선점 완료' : '대기로 해제'}.` })
-    setManualId('')
+    try {
+      await API.updateApp(app.id, { status: newStatus })
+      
+      // 서버에서 최신 데이터 불러오기
+      const [newApps, fundRes] = await Promise.all([
+        API.fetchApps(),
+        API.fetchFundUsed()
+      ])
+      saveApps(newApps)
+      saveFundUsed(fundRes.value)
+      
+      setManualMsg({ type: 'success', text: `${id} → ${newStatus === 'manual' ? '별도배정 선점 완료' : '대기로 해제'}.` })
+      setManualId('')
+    } catch (e) {
+      setManualMsg({ type: 'danger', text: '별도배정 처리 중 오류 발생: ' + e.message })
+    }
   }
 
   return (
@@ -186,7 +181,7 @@ export default function LotteryTab({ settings, apps, fundUsed, saveApps, saveFun
                 : `대기 중인 ${pending.length}명 중 ${remaining}명을 무작위 추첨합니다.${adminUnlocked ? ` (전체 쿼터 ${quota} - 별도배정 ${manual.length})` : ''}`}
             </p>
             <div style={{ display: 'flex', gap: 8 }}>
-              <Btn variant="success" onClick={() => runLottery(confirm === 'rerun')}>실행</Btn>
+              <Btn variant="success" onClick={runLottery}>실행</Btn>
               <Btn onClick={() => setConfirm(false)}>취소</Btn>
             </div>
           </div>

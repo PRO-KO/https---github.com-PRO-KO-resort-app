@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getSeason, won, YEAR, MONTHS_KR } from '../constants'
+import { getSeason, won, YEAR, MONTHS_KR, DEFAULT_SETTINGS } from '../constants'
 import { Btn, Card, SeasonBadge } from '../components/UI'
 
 // ── 캘린더 유틸 ──────────────────────────────────────────────────────────────
@@ -51,11 +51,20 @@ const navBtnSt = {
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────────────
 export default function RoomsTab({ settings, saveSettings }) {
-  const [rooms,         setRooms]         = useState(() => JSON.parse(JSON.stringify(settings.rooms)))
-  const [datePrices,    setDatePrices]    = useState(() => JSON.parse(JSON.stringify(settings.datePrices ?? [])))
+  const s = settings || DEFAULT_SETTINGS
+  const [rooms,         setRooms]         = useState(() => JSON.parse(JSON.stringify(s.rooms)))
+  const [datePrices,    setDatePrices]    = useState(() => JSON.parse(JSON.stringify(s.datePrices ?? [])))
   const [saved,         setSaved]         = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [showRoomEdit,  setShowRoomEdit]  = useState(false)
+
+  // settings가 뒤늦게 로드될 경우 대비
+  useEffect(() => {
+    if (settings) {
+      setRooms(JSON.parse(JSON.stringify(settings.rooms || DEFAULT_SETTINGS.rooms)))
+      setDatePrices(JSON.parse(JSON.stringify(settings.datePrices ?? [])))
+    }
+  }, [settings])
 
   // 캘린더 네비게이션
   const [calYear,  setCalYear]  = useState(YEAR)
@@ -115,7 +124,7 @@ export default function RoomsTab({ settings, saveSettings }) {
   // ── 저장 ─────────────────────────────────────────────────────────────────
   const save = async () => {
     const normalized = rooms.map(r => ({ extraGuestFee: 0, ...r }))
-    await saveSettings({ ...settings, rooms: normalized, datePrices })
+    await saveSettings({ ...(settings || DEFAULT_SETTINGS), rooms: normalized, datePrices })
     setSaved(true); setTimeout(() => setSaved(false), 2000)
   }
 
@@ -126,9 +135,10 @@ export default function RoomsTab({ settings, saveSettings }) {
 
   const getHol = (y, m, d) => {
     const ds = toDs(y, m, d)
-    const h  = (settings.holidays ?? []).find(h => h.date === ds)
+    const currentSettings = settings || DEFAULT_SETTINGS
+    const h  = (currentSettings.holidays ?? []).find(h => h.date === ds)
     if (h) return h
-    if ([7, 8].includes(m) && (settings.peakHolidays?.[m] ?? []).includes(d)) return { name: '공휴일' }
+    if ([7, 8].includes(m) && (currentSettings.peakHolidays?.[m] ?? []).includes(d)) return { name: '공휴일' }
     return null
   }
 

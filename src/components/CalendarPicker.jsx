@@ -65,23 +65,23 @@ export default function CalendarPicker({
   const getEffectivePrice = day => {
     if (!room) return null
     const ds       = toDs(year, month, day)
-    const override = resolveDatePrice(settings.datePrices, room.id, ds)
+    const override = resolveDatePrice(settings?.datePrices, room.id, ds)
     return override ?? seasonPrice
   }
 
   const getHoliday = day => {
     const ds = toDs(year, month, day)
-    const h  = (settings.holidays ?? []).find(h => h.date === ds)
+    const h  = (settings?.holidays ?? []).find(h => h.date === ds)
     if (h) return h
-    if (isPeak && (settings.peakHolidays?.[month] ?? []).includes(day)) return { name: '공휴일' }
+    if (isPeak && ((settings?.peakHolidays || {})[month] ?? []).includes(day)) return { name: '공휴일' }
     return null
   }
 
   const getDayAvail = day => {
     if (!isPeak) return null
     const ds   = toDs(year, month, day)
-    const max  = settings.peakDayQuotas?.[month]?.[day] ?? 5
-    const used = apps.filter(a => a.checkInDate === ds && a.status !== 'rejected').length
+    const max  = (settings?.peakDayQuotas || {})[month]?.[day] ?? 5
+    const used = (apps || []).filter(a => a.checkInDate === ds && a.status !== 'rejected').length
     const left = Math.max(0, max - used)
     return { max, used, left, full: left <= 0 || max === 0 }
   }
@@ -146,9 +146,9 @@ export default function CalendarPicker({
   const focusAvail = focusDay ? getDayAvail(focusDay) : null
 
   // 내비게이션 헤더용
-  const periodOpen      = isPeriodOpen(settings, month)
-  const monthApplicants = apps.filter(a => a.month === month && a.year === year && a.status !== 'rejected').length
-  const monthQuota      = settings.quotas?.[month] ?? 20
+  const periodOpen      = isPeriodOpen(settings || {}, month)
+  const monthApplicants = (apps || []).filter(a => a.month === month && a.year === year && a.status !== 'rejected').length
+  const monthQuota      = (settings?.quotas || {})[month] ?? 20
 
   return (
     <div>
