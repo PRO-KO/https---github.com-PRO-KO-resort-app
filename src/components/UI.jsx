@@ -97,10 +97,10 @@ export function Field({ label, value, onChange, placeholder, type = 'text', hint
 // ── 시즌 배지 ────────────────────────────────────────────────────────────
 
 export function SeasonBadge({ season }) {
-  const ss = SEASON_STYLE[season]
+  const ss = SEASON_STYLE[season] || SEASON_STYLE['비수기']
   return (
     <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 3, background: ss.bg, color: ss.text, fontWeight: 500 }}>
-      {season}
+      {season || '비수기'}
     </span>
   )
 }
@@ -121,11 +121,12 @@ export function EmpStatusBadge({ status }) {
 // ── 신청 상태 배지 ────────────────────────────────────────────────────────
 
 const APP_STATUS = {
-  pending:   { label: '대기',     bg: 'var(--color-background-warning)',  text: 'var(--color-text-warning)'  },
-  selected:  { label: '당첨 🎉',  bg: 'var(--color-background-success)',  text: 'var(--color-text-success)'  },
-  rejected:  { label: '낙첨',     bg: 'var(--color-background-secondary)',text: 'var(--color-text-tertiary)' },
-  manual:    { label: '별도배정', bg: 'var(--color-background-info)',     text: 'var(--color-text-info)'     },
-  cancelled: { label: '취소됨',   bg: 'var(--color-background-secondary)',text: 'var(--color-text-tertiary)' },
+  pending:          { label: '대기',     bg: 'var(--color-background-warning)',  text: 'var(--color-text-warning)'  },
+  selected:         { label: '당첨 🎉',  bg: 'var(--color-background-success)',  text: 'var(--color-text-success)'  },
+  rejected:         { label: '낙첨',     bg: 'var(--color-background-secondary)',text: 'var(--color-text-tertiary)' },
+  manual:           { label: '별도배정', bg: 'var(--color-background-info)',     text: 'var(--color-text-info)'     },
+  cancelled:        { label: '취소됨',   bg: 'var(--color-background-secondary)',text: 'var(--color-text-tertiary)' },
+  cancel_requested: { label: '취소요청', bg: 'var(--color-background-warning)',  text: 'var(--color-text-warning)'  },
 }
 
 export function AppStatusBadge({ status }) {

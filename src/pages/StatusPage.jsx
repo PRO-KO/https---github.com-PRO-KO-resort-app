@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { won, YEAR } from '../constants'
+import { won, YEAR, getSeason } from '../constants'
 import { Card, SeasonBadge, AppStatusBadge, Btn } from '../components/UI'
 import * as API from '../api'
 
@@ -49,13 +49,14 @@ export default function StatusPage({ currentUser, apps, saveApps }) {
               const isCancelled = app.status === 'cancelled'
               const canCancelInstantly = app.status === 'pending'
               const canRequestCancel = app.status === 'selected' || app.status === 'manual'
+              const season = app.season || getSeason(app.month)
               
               return (
                 <Card key={app.id} style={{ opacity: isCancelled ? 0.6 : 1 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, gap: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 15, fontWeight: 500 }}>{app.month}월</span>
-                      <SeasonBadge season={app.season} />
+                      <SeasonBadge season={season} />
                       <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{app.roomType}</span>
                     </div>
                     <AppStatusBadge status={app.status} />
